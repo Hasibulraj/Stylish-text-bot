@@ -1,4 +1,3 @@
-
 import os
 import time
 import html
@@ -17,9 +16,10 @@ from urllib3.util.retry import Retry
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 ADMIN_ID = 5989928539
+# आपकी नई Render Web App Link यहाँ अपडेट कर दी गई है
 APP_URL = os.environ.get(
     "APP_URL",
-    "https://osint-s7db.onrender.com"
+    "https://stylish-text-bot-1ycc.onrender.com"
 ).strip().rstrip("/")
 PORT = int(os.environ.get("PORT", "10000"))
 DB_PATH = os.environ.get("DB_PATH", "users.db")
@@ -217,11 +217,11 @@ def generate_fancy_styles(text):
         ),
         (
             "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙",
-            "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
+            "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝚕𝚖𝚗𝚘𝚙𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
         ),
         (
             "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕",
-            "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞𝙟𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝙪𝙫𝙬𝙭𝙮𝙯"
+            "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞ｊ𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝚞𝙫𝙬𝙭𝙮𝚣"
         ),
         (
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -229,7 +229,7 @@ def generate_fancy_styles(text):
         ),
         (
             "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭",
-            "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
+            "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝚘𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
         )
     ]
 
@@ -319,7 +319,7 @@ def send_text_chunks(chat_id, text, reply_to_message_id=None):
     return sent_ids
 
 
-# ============ HEALTH CHECK ============
+# ============ HEALTH CHECK SERVER ============
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -351,7 +351,7 @@ def start_health_server():
         logger.exception("Health server failed")
 
 
-# ============ SELF PING ============
+# ============ SELF PING (KEEPALIVE) ============
 
 def start_self_ping():
     session = requests.Session()
@@ -372,11 +372,12 @@ def start_self_ping():
                 response = session.get(
                     APP_URL + "/health", timeout=15
                 )
-                logger.info("Self-ping: HTTP %s", response.status_code)
+                logger.info("Self-ping successful: HTTP %s", response.status_code)
                 response.close()
             except requests.RequestException:
                 logger.exception("Self-ping failed")
-            time.sleep(180)
+            # हर 120 सेकंड (2 मिनट) में पिंग करेगा ताकि सर्वर स्लीप न हो
+            time.sleep(120)
 
     threading.Thread(
         target=worker, daemon=True, name="self-ping"
@@ -615,13 +616,11 @@ def handle_text_messages(message):
             bot.reply_to(message, "Please send text up to 300 characters.")
             return
 
-        user_id = message.from_user.id
+            user_id = message.from_user.id
         chat_id = message.chat.id
 
         add_user(user_id, message.from_user.first_name or "User")
 
-        # Cleanup only in private chat.
-        # Commands and previous messages are not deleted.
         if message.chat.type == "private":
             clean_previous_messages(chat_id)
 
@@ -696,4 +695,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                              
+                
