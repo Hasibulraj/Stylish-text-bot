@@ -148,7 +148,7 @@ def delete_custom_style_db(style_id):
         conn.close()
 
 
-# ============ SMART FANCY TEXT GENERATOR (MAPPING USER TEXT TO STYLES) ============
+# ============ SMART FANCY TEXT GENERATOR ============
 def generate_fancy_styles(text):
     styles = []
     
@@ -158,8 +158,8 @@ def generate_fancy_styles(text):
     i_sans_l = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
     b_serif_u = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
     b_serif_l = "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
-    script_u = "𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
-    script_l = "𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓿𝓌𝓍𝓎𝒯"
+    script_u = "𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦𝒒ℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
+    script_l = "𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓿𝓌𝓍𝓎𝓏"
     b_script_u = "𝓐𝓑𝓒𝓓𝓔𝓕𝓖𝓗𝓘𝓙𝓚𝓛𝓜𝓝𝘖𝓟𝓠𝓡𝓢𝓣𝓤𝓥𝓦𝓧𝓨𝓩"
     b_script_l = "𝓪𝚋𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝑘𝑙𝓶𝓷𝓸𝓹𝔺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃"
     gothic_u = "𝔄𝔅ℭ𝒟𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝒮𝔗𝔘𝔙𝔚𝔛𝔜ℨ"
@@ -205,36 +205,25 @@ def generate_fancy_styles(text):
     ]
     styles.extend(decorations)
 
-    # Admin द्वारा /addstyle से जोड़े गए कस्टम स्टाइल्स को यहाँ स्मार्ट तरीके से अप्लाई किया जाएगा
+    # Admin द्वारा /addstyle से जोड़े गए कस्टम स्टाइल्स को यहाँ सही तरीके से अप्लाई किया जाएगा
     custom_rows = get_custom_styles_db()
     for row in custom_rows:
         template = row[1]
-        
-        # यदि एडमिन ने उदाहरण दिया है, जैसे /addstyle ░B░a░b░u░ या /addstyle 𝗛𝗜𝗜
-        # तो हम उस स्टाइल के लेटर्स को यूजर के टेक्स्ट (जैसे "Riaz") के हिसाब से ढालने की कोशिश करेंगे,
-        # या सीधे यूजर के टेक्स्ट को उस पैटर्न में बदलेंगे या टेंपलेट को जोड़ेंगे।
-        # यहाँ हम स्मार्ट मैपिंग करेंगे: अगर टेंपलेट में अक्षर अलग स्टाइल के हैं, तो उन्हें यूजर के शब्द के अनुसार बनाएंगे।
-        
-        # साधारण और सटीक तरीका: अगर एडमिन ने पूरा शब्द दिया है (जैसे HII), तो हम उसकी स्टाइल मैपिंग निकाल सकते हैं 
-        # या फिर सीधे टेंपलेट को जोड़ सकते हैं। यूजर की मांग के अनुसार:
         if "{text}" in template:
             styles.append(template.replace("{text}", text))
         else:
-            # अगर एडमिन ने सिर्फ फैंसी शब्द दिया है, तो हम उस स्टाइल की मैपिंग यूजर के टेक्स्ट पर लगाने का प्रयास करेंगे
-            # या उसे एक नए डेकोरेशन/स्टाइल की तरह लिस्ट में जोड़ देंगे।
-            # उदाहरण के लिए यदि टेंपलेट "░B░a░b░u░" है, तो इसे एक पैटर्न मानकर यूजर के टेक्स्ट पर फिट करेंगे:
-            transformed = ""
-            for char in text:
-                # यदि एडमिन के टेंपलेट में स्पेस या सजावट है, उसे बेस मानकर बनाएंगे
-                transformed += char + "".join([c for c in template if not c.isalnum()])[:1]
-            if not transformed:
-                transformed = template + " " + text
-            styles.append(transformed.strip())
+            # यहाँ सैंपल वर्ड्स को यूजर के टेक्स्ट से रिप्लेस किया जाएगा, बिना अक्षर तोड़े
+            replaced = template
+            for sample in ["hii", "HII", "Hii", "babu", "Babu", "BABU", "hello", "Hello"]:
+                if sample in replaced:
+                    replaced = replaced.replace(sample, text)
             
-            # साथ ही डायरेक्ट टेंपलेट को भी जोड़ देते हैं ताकि जो एडमिन ने डाला है वो हूबहू मिल जाए
-            styles.append(template.replace("Babu", text).replace("babu", text).replace("HII", text).replace("hii", text))
+            if replaced != template:
+                styles.append(replaced)
+            else:
+                # अगर कोई सैंपल मैच नहीं हुआ तो डेकोरेशन के रूप में जोड़ दें
+                styles.append(template + " " + text)
 
-    # डुप्लीकेट हटाना
     unique_styles = []
     for s in styles:
         if s not in unique_styles:
@@ -319,7 +308,7 @@ def send_welcome(message):
         if user_id == ADMIN_ID:
             welcome_text += (
                 "\n\n👑 **Admin Commands:**\n"
-                "/addstyle <text> - Naya style add karein (Jaise: /addstyle ░B░a░b░u░)\n"
+                "/addstyle <text> - Naya style add karein (Jaise: /addstyle 👻hii👻)\n"
                 "/liststyles - Sabhi custom styles dekhein\n"
                 "/delstyle <id> - Style delete karein\n"
                 "/broadcast <msg> - Sabhi ko message bhejein"
@@ -338,7 +327,7 @@ def add_style_command(message):
 
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(message, "⚠️ Usage: /addstyle ░B░a░b░u░\n(Aap naya fancy style ya template yahan de sakte hain)")
+        bot.reply_to(message, "⚠️ Usage: /addstyle 👻hii👻\n(Aap naya fancy style yahan add kar sakte hain)")
         return
 
     template = parts[1].strip()
@@ -418,28 +407,6 @@ def broadcast_command(message):
     )
 
 
-# ============ AUTO-DELETE HELPER (USER MESSAGE & BOT REPLY) ============
-def delayed_delete_bot_message(chat_id, message_id, delay=300):
-    """बोट का मैसेज 5 मिनट (300 सेकंड) बाद डिलीट करेगा"""
-    def worker():
-        time.sleep(delay)
-        try:
-            bot.delete_message(chat_id, message_id)
-        except Exception:
-            pass
-    threading.Thread(target=worker, daemon=True).start()
-
-
-def cleanup_old_user_messages(chat_id, user_id):
-    """
-    यूजर के मैसेज का नियम: जब तक यूजर के 5 से कम मैसेज हैं, डिलीट नहीं होंगे। 
-    जैसे ही 5 या उससे ज्यादा होंगे, सबसे पुराना वाला मैसेज डिलीट हो जाएगा।
-    """
-    # चूंकि टेलीग्राम बोट सीधे यूजर के पुराने सारे मैसेज की लिस्ट नहीं निकाल सकता जब तक स्टोर न करें, 
-    # हम डेटाबेस या इन-मेमोरी काउंटर से इसे मैनेज कर सकते हैं।
-    pass
-
-
 # ============ HANDLE ALL TEXT MESSAGES ============
 @bot.message_handler(func=lambda message: True)
 def handle_text_messages(message):
@@ -468,17 +435,8 @@ def handle_text_messages(message):
         if len(response_text) > 4000:
             response_text = response_text[:4000] + "\n...(truncated)"
 
-        # बोट का रिप्लाई भेजें
-        reply_msg = bot.reply_to(message, response_text, parse_mode="Markdown")
-
-        # बोट का मैसेज 5 मिनट (300 सेकंड) बाद ऑटो-डिलीट हो जाएगा
-        delayed_delete_bot_message(message.chat.id, reply_msg.message_id, delay=300)
-
-        # यूजर के मैसेज के लिए: यूजर का मैसेज तभी डिलीट होगा जब चैट में उसके 5 से ज्यादा मैसेज हो जाएंगे।
-        # इसके लिए हम चैट हिस्ट्री या सिंपल काउंट ट्रैक कर सकते हैं। 
-        # (नोट: टेलीग्राम API सीधे यूजर के पिछले मैसेज डिलीट करने की अनुमति तभी देता है जब बोट के पास admin rights हों, 
-        # लेकिन पर्सनल चैट में बोट केवल अपने भेजे हुए मैसेज डिलीट कर सकता है, यूजर के मैसेज डिलीट करने के लिए ग्रुप चैट या यूजर की परमिशन चाहिए होती है। 
-        # इसलिए पर्सनल चैट में बोट यूजर के मैसेज डिलीट नहीं कर सकता, सिर्फ अपने मैसेज डिलीट कर सकता है।)
+        # बोट का रिप्लाई भेजा जाएगा (कोई भी मैसेज ऑटो-डिलीट नहीं होगा)
+        bot.reply_to(message, response_text, parse_mode="Markdown")
 
     except Exception:
         logger.exception("Text message handler failed")
@@ -513,4 +471,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+    
