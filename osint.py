@@ -1,3 +1,4 @@
+
 import os
 import time
 import html
@@ -16,10 +17,14 @@ from urllib3.util.retry import Retry
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 ADMIN_ID = 5989928539
+
 APP_URL = os.environ.get(
     "APP_URL",
     "https://osint-s7db.onrender.com"
 ).strip().rstrip("/")
+
+PING_URL = "https://stylish-text-bot-1ycc.onrender.com"
+
 PORT = int(os.environ.get("PORT", "10000"))
 DB_PATH = os.environ.get("DB_PATH", "users.db")
 
@@ -93,9 +98,9 @@ def add_user(user_id, first_name):
 def get_all_users():
     conn = get_db()
     try:
-        rows = conn.execute("""
-            SELECT user_id FROM users WHERE status = 'active'
-        """).fetchall()
+        rows = conn.execute(
+            "SELECT user_id FROM users WHERE status = 'active'"
+        ).fetchall()
         return [row[0] for row in rows]
     finally:
         conn.close()
@@ -128,9 +133,9 @@ def add_custom_style_db(template):
 def get_custom_styles_db():
     conn = get_db()
     try:
-        return conn.execute("""
-            SELECT id, template FROM custom_styles ORDER BY id
-        """).fetchall()
+        return conn.execute(
+            "SELECT id, template FROM custom_styles ORDER BY id"
+        ).fetchall()
     finally:
         conn.close()
 
@@ -219,7 +224,7 @@ def generate_fancy_styles(text):
             "𝐚𝐛𝐜𝐝𝐞𝐟𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
         ),
         (
-            "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙾𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕",
+            "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕",
             "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞ｊ𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝚞𝙫𝙬𝙭𝙮𝚣"
         ),
         (
@@ -318,7 +323,7 @@ def send_text_chunks(chat_id, text, reply_to_message_id=None):
     return sent_ids
 
 
-# ============ HEALTH CHECK ============
+# ============ HEALTH CHECK SERVER ============
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -328,6 +333,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
 
         body = b"Bot service is running"
+
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -350,10 +356,11 @@ def start_health_server():
         logger.exception("Health server failed")
 
 
-# ============ SELF PING ============
+# ============ EXTERNAL AUTO PING EVERY 2 MINUTES ============
 
 def start_self_ping():
     session = requests.Session()
+
     retry = Retry(
         total=2,
         connect=2,
@@ -362,23 +369,35 @@ def start_self_ping():
         status_forcelist=[500, 502, 503, 504],
         allowed_methods=["GET"]
     )
+
     session.mount("https://", HTTPAdapter(max_retries=retry))
 
     def worker():
-        time.sleep(20)
+        time.sleep(10)
+
         while True:
             try:
                 response = session.get(
-                    APP_URL + "/health", timeout=15
+                    PING_URL,
+                    timeout=25
                 )
-                logger.info("Self-ping: HTTP %s", response.status_code)
+
+                logger.info(
+                    "External auto-ping %s: HTTP %s",
+                    PING_URL,
+                    response.status_code
+                )
                 response.close()
-            except requests.RequestException:
-                logger.exception("Self-ping failed")
-            time.sleep(180)
+
+            except requests.RequestException as exc:
+                logger.warning("External auto-ping failed: %s", exc)
+
+            time.sleep(120)
 
     threading.Thread(
-        target=worker, daemon=True, name="self-ping"
+        target=worker,
+        daemon=True,
+        name="external-auto-ping"
     ).start()
 
 
@@ -509,7 +528,10 @@ def del_style_command(message):
         return
 
     if delete_custom_style_db(style_id):
-        bot.reply_to(message, "🗑️ Style ID " + str(style_id) + " delete ho gaya.")
+        bot.reply_to(
+            message,
+            "🗑️ Style ID " + str(style_id) + " delete ho gaya."
+        )
     else:
         bot.reply_to(message, "Yeh style ID nahi mili.")
 
@@ -531,7 +553,8 @@ def broadcast_command(message):
     users = get_all_users()
 
     status = bot.reply_to(
-        message, "📢 Broadcast starting...\nUsers: " + str(len(users))
+        message,
+        "📢 Broadcast starting...\nUsers: " + str(len(users))
     )
 
     sent = 0
@@ -599,7 +622,10 @@ def stats_command(message):
 
 # ============ TEXT HANDLER ============
 
-@bot.message_handler(content_types=["text"], func=lambda message: True)
+@bot.message_handler(
+    content_types=["text"],
+    func=lambda message: True
+)
 def handle_text_messages(message):
     try:
         if not message.from_user:
@@ -611,7 +637,10 @@ def handle_text_messages(message):
             return
 
         if len(text) > 300:
-            bot.reply_to(message, "Please send text up to 300 characters.")
+            bot.reply_to(
+                message,
+                "Please send text up to 300 characters."
+            )
             return
 
         user_id = message.from_user.id
@@ -619,8 +648,6 @@ def handle_text_messages(message):
 
         add_user(user_id, message.from_user.first_name or "User")
 
-        # Cleanup only in private chat.
-        # Commands and previous messages are not deleted.
         if message.chat.type == "private":
             clean_previous_messages(chat_id)
 
@@ -652,13 +679,18 @@ def handle_text_messages(message):
 
         if message.chat.type == "private":
             save_cleanup_data(
-                chat_id, message.message_id, output_ids
+                chat_id,
+                message.message_id,
+                output_ids
             )
 
     except Exception:
         logger.exception("Text handler failed")
         try:
-            bot.reply_to(message, "Text process nahi ho paya. Dobara try karein.")
+            bot.reply_to(
+                message,
+                "Text process nahi ho paya. Dobara try karein."
+            )
         except Exception:
             pass
 
@@ -675,6 +707,7 @@ def main():
     ).start()
 
     start_self_ping()
+
     logger.info("Starting Telegram bot polling...")
 
     while True:
@@ -685,14 +718,18 @@ def main():
                 allowed_updates=["message"],
                 skip_pending=False
             )
+
         except KeyboardInterrupt:
             logger.info("Shutdown requested")
             break
+
         except Exception:
-            logger.exception("Polling failed; retrying in 5 seconds")
+            logger.exception(
+                "Polling failed; retrying in 5 seconds"
+            )
             time.sleep(5)
 
 
 if __name__ == "__main__":
     main()
-                
+    
