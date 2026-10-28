@@ -57,6 +57,13 @@ def init_db():
                 PRIMARY KEY (user_id, query_text, selected_style)
             )
         """)
+        # Admin द्वारा जोड़े गए कस्टम फैंसी स्टाइल्स की टेबल
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS custom_styles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template TEXT UNIQUE
+            )
+        """)
         conn.commit()
         logger.info("Database initialized: %s", DB_PATH)
     finally:
@@ -114,11 +121,39 @@ def get_top_preferred_styles(user_id, query_text):
         conn.close()
 
 
-# ============ MASSIVE FANCY TEXT GENERATOR (100+ STYLES) ============
+def add_custom_style_db(template):
+    conn = get_db()
+    try:
+        conn.execute("INSERT OR IGNORE INTO custom_styles (template) VALUES (?)", (template,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_custom_styles_db():
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT id, template FROM custom_styles").fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def delete_custom_style_db(style_id):
+    conn = get_db()
+    try:
+        cursor = conn.execute("DELETE FROM custom_styles WHERE id = ?", (style_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+# ============ MASSIVE FANCY TEXT GENERATOR (100+ STYLES + ADMIN CUSTOM) ============
 def generate_fancy_styles(text):
     styles = []
     
-    b_sans_u = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢-𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
+    b_sans_u = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
     b_sans_l = "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
     i_sans_u = "𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝑾𝘟𝘠𝘡"
     i_sans_l = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
@@ -183,34 +218,21 @@ def generate_fancy_styles(text):
     ]
     styles.extend(decorations)
 
-    accents_combos = [
-        ('\u0334', '\u0335'), ('\u0337', '\u0338'), ('\u0339', ''), ('\u033A', ''),
-        ('\u033B', ''), ('\u033C', ''), ('\u033F', ''), ('\u0346', ''),
-        ('\u034A', ''), ('\u034B', ''), ('\u034C', ''), ('\u0350', ''),
-        ('\u0351', ''), ('\u0352', ''), ('\u0357', ''), ('\u0358', ''),
-        ('\u0360', ''), ('\u0361', ''), ('\u0362', '')
-    ]
-    
-    for ac1, ac2 in accents_combos:
-        styles.append("".join([c + ac1 + ac2 for c in text]))
-
-    base_variants = [
-        "~*~*" + text + "*~*~", "---" + text + "---", "=== " + text + " ===", "*** " + text + " ***",
-        ".:*~*:._.:*~*:" + text + ":*~*:. _.:*~*.", "xXx_" + text + "_xXx", "°°°" + text + "°°°",
-        "•·.·´" + text + "´·.·•", "♦" + text + "♦", "♠" + text + "♠", "♣" + text + "♣",
-        "♫ " + text + " ♫", "♬ " + text + " ♬", "⚡ " + text + " ⚡", "❄️ " + text + " ❄️", "☔ " + text + " ☔"
-    ]
-    styles.extend(base_variants)
+    # Admin द्वारा डेटाबेस में जोड़े गए कस्टम स्टाइल्स को भी इसमें शामिल करना
+    custom_rows = get_custom_styles_db()
+    for row in custom_rows:
+        template = row[1]
+        if "{text}" in template:
+            styles.append(template.format(text=text))
+        else:
+            styles.append(template + " " + text)
 
     unique_styles = []
     for s in styles:
         if s not in unique_styles:
             unique_styles.append(s)
-            
-    while len(unique_styles) < 100:
-        unique_styles.append("꧁༺ " + text + " ⟡ " + str(len(unique_styles)+1) + " ༻꧂")
 
-    return unique_styles[:100]
+    return unique_styles
 
 
 # ============ HEALTH-CHECK WEB SERVER ============
@@ -294,14 +316,77 @@ def send_welcome(message):
         welcome_text = (
             "👋 Hello **" + first_name + "**!\n\n"
             "✨ Main ek **Fancy Text Generator Bot** hoon.\n"
-            "💬 Aap koi bhi text bhejiye, main uske **100+ Stylish & Fancy Fonts** bana kar bhejunga!\n\n"
+            "💬 Aap koi bhi text bhejiye, main uske **Stylish & Fancy Fonts** bana kar bhejunga!\n\n"
             "👇 Abhi koi text type karke bhejiye:"
         )
         
+        if user_id == ADMIN_ID:
+            welcome_text += (
+                "\n\n👑 **Admin Commands:**\n"
+                "/addstyle <template> - Naya fancy style add karein (Jaise: /addstyle ⚡ {text} ⚡)\n"
+                "/liststyles - Sabhi custom styles dekhein\n"
+                "/delstyle <id> - Style delete karein\n"
+                "/broadcast <msg> - Sabhi ko message bhejein"
+            )
+
         reply_msg = bot.reply_to(message, welcome_text, parse_mode="Markdown")
-        delayed_delete(message.chat.id, [message.message_id, reply_msg.message_id], delay=20)
+        delayed_delete(message.chat.id, [message.message_id, reply_msg.message_id], delay=30)
     except Exception:
         logger.exception("Start command failed")
+
+
+# ============ ADMIN COMMANDS FOR STYLES ============
+@bot.message_handler(commands=["addstyle"])
+def add_style_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        bot.reply_to(message, "⚠️ Usage: /addstyle ⚡ {text} ⚡\n(Agar {text} nahi likhenge toh text ke aage jud jayega)")
+        return
+
+    template = parts[1].strip()
+    add_custom_style_db(template)
+    bot.reply_to(message, f"✅ Naya fancy style successfully add ho gaya!\nTemplate: `{template}`", parse_mode="Markdown")
+
+
+@bot.message_handler(commands=["liststyles"])
+def list_styles_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    rows = get_custom_styles_db()
+    if not rows:
+        bot.reply_to(message, "📋 Koi bhi custom style add nahi hai.")
+        return
+
+    text = "📋 **Custom Added Styles:**\n\n"
+    for r_id, template in rows:
+        text += f"ID: `{r_id}` | `{template}`\n"
+    
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+
+@bot.message_handler(commands=["delstyle"])
+def del_style_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        bot.reply_to(message, "⚠️ Usage: /delstyle <style_id>\n(ID dekhne ke liye /liststyles use karein)")
+        return
+
+    try:
+        style_id = int(parts[1].strip())
+        success = delete_custom_style_db(style_id)
+        if success:
+            bot.reply_to(message, f"✅ Style ID {style_id} successfully delete kar di gayi hai!")
+        else:
+            bot.reply_to(message, "⚠️ Yeh Style ID database mein nahi mili.")
+    except ValueError:
+        bot.reply_to(message, "⚠️ ID ek number honi chahiye.")
 
 
 # ============ ADMIN BROADCAST COMMAND ============
@@ -338,7 +423,7 @@ def broadcast_command(message):
     )
 
 
-# ============ HANDLE ALL TEXT MESSAGES (100 STYLES & LAST POSITION PREFERENCE) ============
+# ============ HANDLE ALL TEXT MESSAGES ============
 @bot.message_handler(func=lambda message: True)
 def handle_text_messages(message):
     try:
@@ -355,11 +440,11 @@ def handle_text_messages(message):
 
         response_text = "🎨 **Fancy Text for:** `" + text + "`\n\n"
 
-        response_text += "📋 **All 100 Fancy Styles:**\n"
+        response_text += "📋 **All Fancy Styles:**\n"
         for i, style in enumerate(styles, 1):
             response_text += str(i) + ". `" + style + "`\n"
 
-        # User ka pichhla pasandida style agar hai, toh use list ke LAAST me (नीचे) dikhayenge
+        # यूजर का पसंदीदा/कॉपी किया हुआ स्टाइल बिल्कुल लिस्ट के आखिर में (Bottom) दिखाया जाएगा
         if top_styles:
             fav_style = top_styles[0]
             response_text += "\n⚡_⚡ **Aapka Most Used / Favorite Style:**\n`" + fav_style + "`\n"
