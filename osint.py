@@ -107,7 +107,7 @@ def get_top_preferred_styles(user_id, query_text):
         rows = conn.execute("""
             SELECT selected_style FROM user_preferences
             WHERE user_id = ? AND query_text = ?
-            ORDER BY count DESC LIMIT 3
+            ORDER BY count DESC LIMIT 1
         """, (user_id, query_text.lower().strip())).fetchall()
         return [row[0] for row in rows]
     finally:
@@ -118,10 +118,10 @@ def get_top_preferred_styles(user_id, query_text):
 def generate_fancy_styles(text):
     styles = []
     
-    b_sans_u = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
+    b_sans_u = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢-𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
     b_sans_l = "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
     i_sans_u = "𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝑾𝘟𝘠𝘡"
-    i_sans_l = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝚖nonpayable𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
+    i_sans_l = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
     b_serif_u = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
     b_serif_l = "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
     script_u = "𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
@@ -294,7 +294,7 @@ def send_welcome(message):
         welcome_text = (
             "👋 Hello **" + first_name + "**!\n\n"
             "✨ Main ek **Fancy Text Generator Bot** hoon.\n"
-            "💬 Aap koi भी text bhejiye, main uske **100+ Stylish & Fancy Fonts** bana kar bhejunga!\n\n"
+            "💬 Aap koi bhi text bhejiye, main uske **100+ Stylish & Fancy Fonts** bana kar bhejunga!\n\n"
             "👇 Abhi koi text type karke bhejiye:"
         )
         
@@ -338,7 +338,7 @@ def broadcast_command(message):
     )
 
 
-# ============ HANDLE ALL TEXT MESSAGES (100 STYLES) ============
+# ============ HANDLE ALL TEXT MESSAGES (100 STYLES & LAST POSITION PREFERENCE) ============
 @bot.message_handler(func=lambda message: True)
 def handle_text_messages(message):
     try:
@@ -355,15 +355,14 @@ def handle_text_messages(message):
 
         response_text = "🎨 **Fancy Text for:** `" + text + "`\n\n"
 
-        if top_styles:
-            response_text += "⭐ **Aapke Most Used Styles:**\n"
-            for idx, st in enumerate(top_styles, 1):
-                response_text += str(idx) + ". `" + st + "`\n"
-            response_text += "\n-------------------\n\n"
-
         response_text += "📋 **All 100 Fancy Styles:**\n"
         for i, style in enumerate(styles, 1):
             response_text += str(i) + ". `" + style + "`\n"
+
+        # User ka pichhla pasandida style agar hai, toh use list ke LAAST me (नीचे) dikhayenge
+        if top_styles:
+            fav_style = top_styles[0]
+            response_text += "\n⚡_⚡ **Aapka Most Used / Favorite Style:**\n`" + fav_style + "`\n"
 
         if len(response_text) > 4000:
             response_text = response_text[:4000] + "\n...(truncated)"
