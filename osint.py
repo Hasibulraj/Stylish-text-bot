@@ -1,10 +1,10 @@
 
 import os
 import time
-import sqlite3
-import threading
-import logging
 import html
+import sqlite3
+import logging
+import threading
 import requests
 import telebot
 
@@ -17,15 +17,14 @@ from urllib3.util.retry import Retry
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 ADMIN_ID = 5989928539
 APP_URL = os.environ.get(
-    "APP_URL", "https://osint-s7db.onrender.com"
+    "APP_URL",
+    "https://osint-s7db.onrender.com"
 ).strip().rstrip("/")
 PORT = int(os.environ.get("PORT", "10000"))
 DB_PATH = os.environ.get("DB_PATH", "users.db")
 
 if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
-    raise RuntimeError(
-        "BOT_TOKEN missing. Render Environment mein BOT_TOKEN set karein."
-    )
+    raise RuntimeError("Please set BOT_TOKEN in Render Environment.")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,32 +107,14 @@ def get_all_users():
         conn.close()
 
 
-def save_user_preference(user_id, query_text, style_text):
+def deactivate_user(user_id):
     conn = get_db()
     try:
-        conn.execute("""
-            INSERT INTO user_preferences
-                (user_id, query_text, selected_style, count)
-            VALUES (?, ?, ?, 1)
-            ON CONFLICT(user_id, query_text, selected_style)
-            DO UPDATE SET count = count + 1
-        """, (user_id, query_text.lower().strip(), style_text))
+        conn.execute(
+            "UPDATE users SET status = 'inactive' WHERE user_id = ?",
+            (user_id,)
+        )
         conn.commit()
-    finally:
-        conn.close()
-
-
-def get_top_preferred_styles(user_id, query_text):
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT selected_style
-            FROM user_preferences
-            WHERE user_id = ? AND query_text = ?
-            ORDER BY count DESC
-            LIMIT 1
-        """, (user_id, query_text.lower().strip())).fetchall()
-        return [row[0] for row in rows]
     finally:
         conn.close()
 
@@ -153,9 +134,11 @@ def add_custom_style_db(template):
 def get_custom_styles_db():
     conn = get_db()
     try:
-        return conn.execute(
-            "SELECT id, template FROM custom_styles ORDER BY id"
-        ).fetchall()
+        return conn.execute("""
+            SELECT id, template
+            FROM custom_styles
+            ORDER BY id
+        """).fetchall()
     finally:
         conn.close()
 
@@ -173,109 +156,123 @@ def delete_custom_style_db(style_id):
         conn.close()
 
 
-def deactivate_user(user_id):
-    conn = get_db()
-    try:
-        conn.execute(
-            "UPDATE users SET status = 'inactive' WHERE user_id = ?",
-            (user_id,)
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-# ============ EXACTLY 10 FANCY FONTS ============
+# ============ 10 DEFAULT FONTS ============
 
 def generate_fancy_styles(text):
     styles = []
 
-    # 1. Double-struck
-    ds_upper = "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ"
-    ds_lower = "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫"
+    double_upper = "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ"
+    double_lower = "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫"
 
-    # 2. Circled
-    circ_upper = "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ"
-    circ_lower = "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ"
+    circled_upper = "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ"
+    circled_lower = "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ"
 
-    # 3. Negative circled letters
-    neg_upper = "🅐🅑🅒🅓🅔🅕🅖🅗🅘🅙🅚🅛🅜🅝🅞🅟🅠🅡🅢🅣🅤🅥🅦🅧🅨🅩"
-    neg_lower = neg_upper.lower()
+    negative_upper = "🅐🅑🅒🅓🅔🅕🅖🅗🅘🅙🅚🅛🅜🅝🅞🅟🅠🅡🅢🅣🅤🅥🅦🅧🅨🅩"
+    negative_lower = negative_upper
 
-    # 4. Squared letters
-    sq_upper = "🄰🄱🄲🄳🄴🄵🄶🄷🄸🄹🄺🄻🄼🄽🄾🄿🅀🅁🅂🅃🅄🅅🅆🅇🅈🅉"
-    sq_lower = "abcdefghijklmnopqrstuvwxyz"
+    squared_upper = "🄰🄱🄲🄳🄴🄵🄶🄷🄸🄹🄺🄻🄼🄽🄾🄿🅀🅁🅂🅃🅄🅅🅆🅇🅈🅉"
+    squared_lower = "abcdefghijklmnopqrstuvwxyz"
 
-    # 5. Small caps approximation
-    small_caps = {
-        'a':'ᴀ', 'b':'ʙ', 'c':'ᴄ', 'd':'ᴅ', 'e':'ᴇ',
-        'f':'ғ', 'g':'ɢ', 'h':'ʜ', 'i':'ɪ', 'j':'ᴊ',
-        'k':'ᴋ', 'l':'ʟ', 'm':'ᴍ', 'n':'ɴ', 'o':'ᴏ',
-        'p':'ᴘ', 'q':'ǫ', 'r':'ʀ', 's':'s', 't':'ᴛ',
-        'u':'ᴜ', 'v':'ᴠ', 'w':'ᴡ', 'x':'x', 'y':'ʏ',
-        'z':'ᴢ'
-    }
-
-    # 6. Monospace
     mono_upper = "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉"
     mono_lower = "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"
 
-    # 7. Bold serif
     bold_upper = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
     bold_lower = "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
 
-    # 8. Bold sans italic
-    bi_upper = "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕"
-    bi_lower = "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞𝙟𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝙪𝙫𝙬𝙭𝙮𝙯"
+    italic_bold_upper = "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕"
+    italic_bold_lower = "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞𝙟𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝙪𝙫𝙬𝙭𝙮𝙯"
 
-    # 9. Block decoration
-    # 10. Bold sans uppercase
+    bold_sans_upper = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
+    bold_sans_lower = "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
+
+    small_caps = {
+        "a": "ᴀ", "b": "ʙ", "c": "ᴄ", "d": "ᴅ",
+        "e": "ᴇ", "f": "ғ", "g": "ɢ", "h": "ʜ",
+        "i": "ɪ", "j": "ᴊ", "k": "ᴋ", "l": "ʟ",
+        "m": "ᴍ", "n": "ɴ", "o": "ᴏ", "p": "ᴘ",
+        "q": "ǫ", "r": "ʀ", "s": "s", "t": "ᴛ",
+        "u": "ᴜ", "v": "ᴠ", "w": "ᴡ", "x": "x",
+        "y": "ʏ", "z": "ᴢ"
+    }
 
     def map_font(value, upper, lower):
         result = []
         for ch in value:
-            if 'A' <= ch <= 'Z':
-                result.append(upper[ord(ch) - ord('A')])
-            elif 'a' <= ch <= 'z':
-                result.append(lower[ord(ch) - ord('a')])
+            if "A" <= ch <= "Z":
+                result.append(upper[ord(ch) - ord("A")])
+            elif "a" <= ch <= "z":
+                result.append(lower[ord(ch) - ord("a")])
             else:
                 result.append(ch)
-        return ''.join(result)
+        return "".join(result)
 
-    styles.append(map_font(text, ds_upper, ds_lower))
-    styles.append(map_font(text, circ_upper, circ_lower))
-    styles.append(map_font(text, neg_upper, neg_lower))
-    styles.append(map_font(text, sq_upper, sq_lower))
-    styles.append(''.join(
-        small_caps.get(ch.lower(), ch) if ch.isascii() and ch.isalpha()
-        else ch for ch in text
+    # 1. Double-struck
+    styles.append(map_font(text, double_upper, double_lower))
+
+    # 2. Circled
+    styles.append(map_font(text, circled_upper, circled_lower))
+
+    # 3. Negative circled
+    styles.append(map_font(text, negative_upper, negative_lower))
+
+    # 4. Squared uppercase; lowercase has no equivalent full set
+    styles.append(map_font(text, squared_upper, squared_lower))
+
+    # 5. Small caps
+    styles.append("".join(
+        small_caps.get(ch.lower(), ch)
+        if ch.isascii() and ch.isalpha() else ch
+        for ch in text
     ))
+
+    # 6. Monospace
     styles.append(map_font(text, mono_upper, mono_lower))
+
+    # 7. Bold serif
     styles.append(map_font(text, bold_upper, bold_lower))
-    styles.append(map_font(text, bi_upper, bi_lower))
 
-    # Decorated letters: retain original case
-    styles.append('░' + '░'.join(text) + '░')
+    # 8. Bold italic sans
+    styles.append(map_font(text, italic_bold_upper, italic_bold_lower))
 
-    # Bold sans uppercase
-    bold_sans_upper = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
-    styles.append(map_font(text.upper(), bold_sans_upper, bold_sans_upper))
+    # 9. Block decoration
+    styles.append("░" + "░".join(text) + "░")
+
+    # 10. Bold sans uppercase
+    styles.append(map_font(
+        text.upper(), bold_sans_upper, bold_sans_lower
+    ))
 
     return styles
 
 
-# ============ SAFE TELEGRAM TEXT ============
+# ============ CUSTOM STYLE OUTPUT ============
 
-def send_long_html(chat_id, text, reply_to_message_id=None):
-    # Telegram text messages are limited to 4096 characters.
-    # Split by lines to avoid breaking individual font rows.
+def get_all_output_styles(text):
+    styles = generate_fancy_styles(text)
+
+    for style_id, template in get_custom_styles_db():
+        if "{text}" in template:
+            result = template.replace("{text}", text)
+            if result not in styles:
+                styles.append(result)
+
+    return styles
+
+
+# ============ SAFE MESSAGE SENDER ============
+
+def send_text_chunks(chat_id, text, reply_to_message_id=None):
+    # Keep output below Telegram's message size limit.
     chunks = []
     current = ""
 
     for line in text.split("\n"):
+        if len(line) > 3500:
+            line = line[:3500]
+
         candidate = line if not current else current + "\n" + line
 
-        if len(candidate) > 3800 and current:
+        if len(candidate) > 3500 and current:
             chunks.append(current)
             current = line
         else:
@@ -288,14 +285,13 @@ def send_long_html(chat_id, text, reply_to_message_id=None):
         bot.send_message(
             chat_id,
             chunk,
-            parse_mode="HTML",
             reply_to_message_id=(
                 reply_to_message_id if index == 0 else None
             )
         )
 
 
-# ============ HEALTH CHECK ============
+# ============ HEALTH CHECK SERVER ============
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -305,6 +301,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
 
         body = b"Bot service is running"
+
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -318,7 +315,8 @@ class HealthHandler(BaseHTTPRequestHandler):
 def start_health_server():
     try:
         server = ThreadingHTTPServer(
-            ("0.0.0.0", PORT), HealthHandler
+            ("0.0.0.0", PORT),
+            HealthHandler
         )
         server.daemon_threads = True
         logger.info("Health server listening on port %s", PORT)
@@ -331,6 +329,7 @@ def start_health_server():
 
 def start_self_ping():
     session = requests.Session()
+
     retry = Retry(
         total=2,
         connect=2,
@@ -339,23 +338,29 @@ def start_self_ping():
         status_forcelist=[500, 502, 503, 504],
         allowed_methods=["GET"]
     )
+
     session.mount("https://", HTTPAdapter(max_retries=retry))
 
     def worker():
         time.sleep(20)
+
         while True:
             try:
                 response = session.get(
-                    APP_URL + "/health", timeout=15
+                    APP_URL + "/health",
+                    timeout=15
                 )
                 logger.info("Self-ping: HTTP %s", response.status_code)
                 response.close()
             except requests.RequestException:
                 logger.exception("Self-ping failed")
+
             time.sleep(180)
 
     threading.Thread(
-        target=worker, daemon=True, name="self-ping"
+        target=worker,
+        daemon=True,
+        name="self-ping"
     ).start()
 
 
@@ -365,37 +370,37 @@ def start_self_ping():
 def send_welcome(message):
     try:
         user = message.from_user
+
         if not user:
             return
 
         add_user(user.id, user.first_name or "User")
 
         welcome = (
-            "👋 Hello <b>" + html.escape(user.first_name or "User") + "</b>!\n\n"
-            "✨ Main ek <b>Fancy Text Generator Bot</b> hoon.\n"
-            "💬 Koi bhi text bhejiye aur main 10 stylish fonts banaunga!\n\n"
-            "👇 Abhi koi text type karke bhejiye:"
+            "👋 Hello " + (user.first_name or "User") + "!\n\n"
+            "✨ Welcome to Fancy Text Generator Bot.\n"
+            "💬 Send any text to get stylish fonts.\n\n"
+            "👇 Send your text now!"
         )
 
         if user.id == ADMIN_ID:
             welcome += (
-                "\n\n👑 <b>Admin Commands:</b>\n"
-                "/addstyle &lt;text&gt; - Custom style save karein\n"
-                "/liststyles - Custom styles dekhein\n"
-                "/delstyle &lt;id&gt; - Custom style delete karein\n"
-                "/broadcast &lt;msg&gt; - Sabhi active users ko message"
+                "\n\n👑 ADMIN COMMANDS\n\n"
+                "/addstyle - Add custom style\n"
+                "/liststyles - List custom styles\n"
+                "/delstyle ID - Delete custom style\n"
+                "/broadcast MESSAGE - Broadcast to users\n"
+                "/stats - View bot statistics\n"
+                "/start - Open this menu"
             )
 
-        bot.send_message(
-            message.chat.id,
-            welcome,
-            parse_mode="HTML"
-        )
+        bot.send_message(message.chat.id, welcome)
+
     except Exception:
         logger.exception("Start command failed")
 
 
-# ============ ADMIN STYLE COMMANDS ============
+# ============ ADD STYLE ============
 
 @bot.message_handler(commands=["addstyle"])
 def add_style_command(message):
@@ -403,19 +408,34 @@ def add_style_command(message):
         return
 
     parts = (message.text or "").split(maxsplit=1)
+
     if len(parts) < 2 or not parts[1].strip():
         bot.reply_to(
             message,
-            "Usage: /addstyle 👻{text}👻\n"
-            "Note: Saved custom styles are not included in the 10-font output."
+            "Usage:\n/addstyle 👑 {text} 👑\n\n"
+            "Example:\n/addstyle ꧁༺ {text} ༻꧂"
         )
         return
 
     template = parts[1].strip()
+
+    if "{text}" not in template:
+        bot.reply_to(
+            message,
+            "Template mein {text} zaroor hona chahiye.\n"
+            "Example: /addstyle 👑 {text} 👑"
+        )
+        return
+
     add_custom_style_db(template)
 
-    bot.reply_to(message, "Custom style database mein save ho gaya.")
+    bot.reply_to(
+        message,
+        "✅ Custom style save ho gaya!\n\n" + template
+    )
 
+
+# ============ LIST STYLES ============
 
 @bot.message_handler(commands=["liststyles"])
 def list_styles_command(message):
@@ -423,19 +443,22 @@ def list_styles_command(message):
         return
 
     rows = get_custom_styles_db()
+
     if not rows:
-        bot.reply_to(message, "Koi custom style save nahi hai.")
+        bot.reply_to(message, "Abhi koi custom style nahi hai.")
         return
 
-    lines = ["<b>Saved Custom Styles</b>\n"]
+    lines = ["📋 CUSTOM STYLES\n"]
+
     for style_id, template in rows:
         lines.append(
-            "ID: <code>" + str(style_id) + "</code> | "
-            + html.escape(template)
+            "ID: " + str(style_id) + "\n" + template + "\n"
         )
 
-    send_long_html(message.chat.id, "\n".join(lines))
+    send_text_chunks(message.chat.id, "\n".join(lines))
 
+
+# ============ DELETE STYLE ============
 
 @bot.message_handler(commands=["delstyle"])
 def del_style_command(message):
@@ -443,18 +466,24 @@ def del_style_command(message):
         return
 
     parts = (message.text or "").split(maxsplit=1)
+
     if len(parts) < 2:
         bot.reply_to(message, "Usage: /delstyle 1")
         return
 
     try:
         style_id = int(parts[1].strip())
-        if delete_custom_style_db(style_id):
-            bot.reply_to(message, "Custom style delete ho gaya.")
-        else:
-            bot.reply_to(message, "Yeh style ID nahi mili.")
     except ValueError:
         bot.reply_to(message, "Style ID number honi chahiye.")
+        return
+
+    if delete_custom_style_db(style_id):
+        bot.reply_to(
+            message,
+            "🗑️ Style ID " + str(style_id) + " delete ho gaya."
+        )
+    else:
+        bot.reply_to(message, "Yeh style ID nahi mili.")
 
 
 # ============ BROADCAST ============
@@ -465,45 +494,92 @@ def broadcast_command(message):
         return
 
     parts = (message.text or "").split(maxsplit=1)
+
     if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(message, "Usage: /broadcast Aapka message")
+        bot.reply_to(
+            message,
+            "Usage: /broadcast Your message here"
+        )
         return
 
-    broadcast_msg = parts[1].strip()
+    broadcast_message = parts[1].strip()
     users = get_all_users()
 
-    sent_count = 0
-    fail_count = 0
-
-    status_msg = bot.reply_to(
+    status_message = bot.reply_to(
         message,
-        "Broadcast shuru...\nTotal active users: " + str(len(users))
+        "📢 Broadcast starting...\nUsers: " + str(len(users))
     )
 
-    for uid in users:
+    sent = 0
+    failed = 0
+
+    for user_id in users:
         try:
-            bot.send_message(uid, broadcast_msg)
-            sent_count += 1
+            bot.send_message(user_id, broadcast_message)
+            sent += 1
             time.sleep(0.05)
+
         except Exception as exc:
-            fail_count += 1
+            failed += 1
             error_code = getattr(exc, "error_code", None)
 
-            # Only deactivate users who have blocked the bot
-            # or whose accounts are no longer accessible.
             if error_code == 403:
-                deactivate_user(uid)
+                deactivate_user(user_id)
+
+            logger.warning(
+                "Broadcast failed for user %s: %s",
+                user_id, exc
+            )
 
     try:
         bot.edit_message_text(
-            "Broadcast complete!\n\n"
-            "Sent: " + str(sent_count) + "\n"
-            "Failed: " + str(fail_count),
+            "✅ Broadcast complete!\n\n"
+            "📤 Sent: " + str(sent) + "\n"
+            "❌ Failed: " + str(failed),
             chat_id=message.chat.id,
-            message_id=status_msg.message_id
+            message_id=status_message.message_id
         )
     except Exception:
-        logger.exception("Could not update broadcast status")
+        logger.exception("Broadcast status update failed")
+
+
+# ============ BOT STATISTICS ============
+
+@bot.message_handler(commands=["stats"])
+def stats_command(message):
+    if not message.from_user or message.from_user.id != ADMIN_ID:
+        return
+
+    conn = get_db()
+
+    try:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM users"
+        ).fetchone()[0]
+
+        active = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE status = 'active'"
+        ).fetchone()[0]
+
+        inactive = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE status = 'inactive'"
+        ).fetchone()[0]
+
+        custom = conn.execute(
+            "SELECT COUNT(*) FROM custom_styles"
+        ).fetchone()[0]
+
+        bot.send_message(
+            message.chat.id,
+            "📊 BOT STATISTICS\n\n"
+            "👥 Total users: " + str(total) + "\n"
+            "✅ Active users: " + str(active) + "\n"
+            "🚫 Inactive users: " + str(inactive) + "\n"
+            "🎨 Custom styles: " + str(custom)
+        )
+
+    finally:
+        conn.close()
 
 
 # ============ TEXT HANDLER ============
@@ -517,34 +593,42 @@ def handle_text_messages(message):
         if not message.from_user:
             return
 
-        original_text = message.text or ""
-        text = original_text.strip()
+        text = (message.text or "").strip()
 
         if not text or text.startswith("/"):
             return
 
-        user = message.from_user
-        add_user(user.id, user.first_name or "User")
+        if len(text) > 300:
+            bot.reply_to(
+                message,
+                "Please send text up to 300 characters."
+            )
+            return
 
-        styles = generate_fancy_styles(text)
+        add_user(
+            message.from_user.id,
+            message.from_user.first_name or "User"
+        )
+
+        styles = get_all_output_styles(text)
 
         lines = [
-            "🎨 <b>Fancy Text Generator</b>",
-            "Original: <code>" + html.escape(text) + "</code>",
+            "🎨 Fancy Text Generator",
+            "Original: " + text,
             "",
-            "<b>10 Stylish Fonts:</b>",
+            "✨ Stylish Fonts:",
             ""
         ]
 
         for index, style in enumerate(styles, 1):
-            lines.append(
-                str(index) + ". <code>" + html.escape(style) + "</code>"
-            )
+            lines.append(str(index) + ". " + style)
+            lines.append("")
 
-        # Do not append custom styles: output remains exactly 10.
-        send_long_html(
+        output = "\n".join(lines).strip()
+
+        send_text_chunks(
             message.chat.id,
-            "\n".join(lines),
+            output,
             reply_to_message_id=message.message_id
         )
 
@@ -553,7 +637,7 @@ def handle_text_messages(message):
         try:
             bot.reply_to(
                 message,
-                "Text process nahi ho paya. Thoda chhota text try karein."
+                "Text process nahi ho paya. Dobara try karein."
             )
         except Exception:
             pass
