@@ -16,7 +16,6 @@ from urllib3.util.retry import Retry
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 ADMIN_ID = 5989928539
-# आपकी नई Render Web App Link यहाँ अपडेट कर दी गई है
 APP_URL = os.environ.get(
     "APP_URL",
     "https://stylish-text-bot-1ycc.onrender.com"
@@ -217,11 +216,11 @@ def generate_fancy_styles(text):
         ),
         (
             "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙",
-            "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝚕𝚖𝚗𝚘𝚙𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
+            "𝐚𝐛𝐜𝐝𝐞𝐟𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
         ),
         (
-            "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕",
-            "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞ｊ𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝚞𝙫𝙬𝙭𝙮𝚣"
+            "𝘼𝘽𝘾D𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙾𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕",
+            "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞𝙟𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝚞𝙫𝙬𝙭𝙮𝚣"
         ),
         (
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -229,7 +228,7 @@ def generate_fancy_styles(text):
         ),
         (
             "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭",
-            "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝚘𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
+            "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝚖𝚗𝚘𝚙𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
         )
     ]
 
@@ -376,7 +375,6 @@ def start_self_ping():
                 response.close()
             except requests.RequestException:
                 logger.exception("Self-ping failed")
-            # हर 120 सेकंड (2 मिनट) में पिंग करेगा ताकि सर्वर स्लीप न हो
             time.sleep(120)
 
     threading.Thread(
@@ -595,104 +593,5 @@ def stats_command(message):
             "🚫 Inactive users: " + str(inactive) + "\n"
             "🎨 Custom styles: " + str(custom)
         )
-    finally:
-        conn.close()
 
-
-# ============ TEXT HANDLER ============
-
-@bot.message_handler(content_types=["text"], func=lambda message: True)
-def handle_text_messages(message):
-    try:
-        if not message.from_user:
-            return
-
-        text = (message.text or "").strip()
-
-        if not text or text.startswith("/"):
-            return
-
-        if len(text) > 300:
-            bot.reply_to(message, "Please send text up to 300 characters.")
-            return
-
-            user_id = message.from_user.id
-        chat_id = message.chat.id
-
-        add_user(user_id, message.from_user.first_name or "User")
-
-        if message.chat.type == "private":
-            clean_previous_messages(chat_id)
-
-        styles = get_all_output_styles(text)
-
-        lines = [
-            "🎨 <b>Fancy Text Generator</b>",
-            "",
-            "📝 <b>Original:</b>",
-            "<code>" + html.escape(text) + "</code>",
-            "",
-            "✨ <b>Stylish Fonts:</b>",
-            ""
-        ]
-
-        for index, style in enumerate(styles, 1):
-            lines.append(
-                str(index) + ". <code>" + html.escape(style) + "</code>"
-            )
-            lines.append("")
-
-        output = "\n".join(lines).strip()
-
-        output_ids = send_text_chunks(
-            chat_id,
-            output,
-            reply_to_message_id=None
-        )
-
-        if message.chat.type == "private":
-            save_cleanup_data(
-                chat_id, message.message_id, output_ids
-            )
-
-    except Exception:
-        logger.exception("Text handler failed")
-        try:
-            bot.reply_to(message, "Text process nahi ho paya. Dobara try karein.")
-        except Exception:
-            pass
-
-
-# ============ MAIN ============
-
-def main():
-    init_db()
-
-    threading.Thread(
-        target=start_health_server,
-        daemon=True,
-        name="health-server"
-    ).start()
-
-    start_self_ping()
-    logger.info("Starting Telegram bot polling...")
-
-    while True:
-        try:
-            bot.infinity_polling(
-                timeout=30,
-                long_polling_timeout=25,
-                allowed_updates=["message"],
-                skip_pending=False
-            )
-        except KeyboardInterrupt:
-            logger.info("Shutdown requested")
-            break
-        except Exception:
-            logger.exception("Polling failed; retrying in 5 seconds")
-            time.sleep(5)
-
-
-if __name__ == "__main__":
-    main()
-                
+    
