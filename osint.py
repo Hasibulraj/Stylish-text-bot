@@ -118,23 +118,22 @@ def get_top_preferred_styles(user_id, query_text):
 def generate_fancy_styles(text):
     styles = []
     
-    # Character maps for unicode transformations
     b_sans_u = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
     b_sans_l = "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
-    i_sans_u = "𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘒𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝘟"
-    i_sans_l = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪j𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
+    i_sans_u = "𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝑾𝘟𝘠𝘡"
+    i_sans_l = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝚖nonpayable𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
     b_serif_u = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
     b_serif_l = "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
     script_u = "𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
     script_l = "𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓿𝓌𝓍𝓎𝓏"
     b_script_u = "𝓐𝓑𝓒𝓓𝓔𝓕𝓖𝓗𝓘𝓙𝓚𝓛𝓜𝓝𝘖𝓟𝓠𝓡𝓢𝓣𝓤𝓥𝓦𝓧𝓨𝓩"
-    b_script_l = "𝓪𝚋𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝑘𝑙𝓶𝓷𝓸𝓹𝓺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃"
+    b_script_l = "𝓪𝚋𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝑘𝑙𝓶𝓷𝓸𝓹𝔺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃"
     gothic_u = "𝔄𝔅ℭ𝒟𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝒮𝔗𝔘𝔙𝔚𝔛𝔜ℨ"
     gothic_l = "𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷"
     mono_u = "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉"
     mono_l = "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"
     db_u = "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ"
-    db_l = "𝕒𝕓𝕔𝕕𝕖𝔗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪🇿"
+    db_l = "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪🇿"
 
     def c_map(txt, u_str, l_str):
         res = []
@@ -149,7 +148,6 @@ def generate_fancy_styles(text):
                 res.append(ch)
         return "".join(res)
 
-    # 1-10 Basic Unicode Fonts
     styles.append(c_map(text, b_sans_u, b_sans_l))
     styles.append(c_map(text, i_sans_u, i_sans_l))
     styles.append(c_map(text, b_serif_u, b_serif_l))
@@ -158,14 +156,12 @@ def generate_fancy_styles(text):
     styles.append(c_map(text, gothic_u, gothic_l))
     styles.append(c_map(text, mono_u, mono_l))
     styles.append(c_map(text, db_u, db_l))
-    styles.append("".join([c + '\u0336' for c in text])) # Strikethrough
-    styles.append("".join([c + '\u0332' for c in text])) # Underline
+    styles.append("".join([c + '\u0336' for c in text]))
+    styles.append("".join([c + '\u0332' for c in text]))
 
-    # 11-25 Circled & Squared
     circ_map = {'a':'ⓐ','b':'ⓑ','c':'ⓒ','d':'ⓓ','e':'ⓔ','f':'ⓕ','g':'ⓖ','h':'ⓗ','i':'ⓘ','j':'ⓙ','k':'ⓚ','l':'ⓛ','m':'ⓜ','n':'ⓝ','o':'ⓞ','p':'ⓟ','q':'ⓠ','r':'ⓡ','s':'ⓢ','t':'ⓣ','u':'ⓤ','v':'ⓥ','w':'ⓦ','x':'ⓧ','y':'ⓨ','z':'ⓩ','A':'Ⓐ','B':'Ⓑ','C':'Ⓒ','D':'Ⓓ','E':'Ⓔ','F':'Ⓕ','G':'Ⓖ','H':'Ⓗ','I':'Ⓘ','J':'Ⓙ','K':'Ⓚ','L':'Ⓛ','M':'Ⓜ','N':'Ⓝ','O':'Ⓞ','P':'Ⓟ','Q':'Ⓠ','R':'Ⓡ','S':'Ⓢ','T':'Ⓣ','U':'Ⓤ','V':'Ⓥ','W':'Ⓦ','X':'Ⓧ','Y':'Ⓨ','Z':'Ⓩ'}
     styles.append("".join([circ_map.get(c, c) for c in text]))
     
-    # Black filled bubble simulation (like in video)
     black_circ = {'a':'🅐','b':'🅑','c':'🅒','d':'🅓','e':'🅔','f':'🅕','g':'🅖','h':'🅗','i':'🅘','j':'🅙','k':'🅚','l':'🅛','m':'🅜','n':'🅝','o':'🅞','p':'🅟','q':'🅠','r':'🅡','s':'🅢','t':'🅣','u':'🅤','v':'🅥','w':'🅦','x':'🅧','y':'🅨','z':'🅩','A':'🅐','B':'🅑','C':'🅒','D':'🅓','E':'🅔','F':'🅕','G':'🅖','H':'🅗','I':'🅘','J':'🅙','K':'🅚','L':'🅛','M':'🅜','N':'🅝','O':'🅞','P':'🅟','Q':'🅠','R':'🅡','S':'🅢','T':'🅣','U':'🅤','V':'🅥','W':'🅦','X':'🅧','Y':'🅨','Z':'🅩'}
     styles.append("".join([black_circ.get(c, c) for c in text]))
     styles.append(" ".join(list(text.upper())))
@@ -174,21 +170,19 @@ def generate_fancy_styles(text):
     flip_map = {'a':'ɐ','b':'q','c':'ɔ','d':'p','e':'ǝ','f':'ɟ','g':'ƃ','h':'ɥ','i':'ᴉ','j':'ɾ','k':'ʞ','l':'l','m':'ɯ','n':'u','o':'o','p':'d','q':'b','r':'ɹ','s':'s','t':'ʇ','u':'n','v':'ʌ','w':'ʍ','x':'x','y':'ʎ','z':'z'}
     styles.append("".join([flip_map.get(c.lower(), c) for c in reversed(text)]))
 
-    # 26-60 Decorations, Hearts, Brackets, Aesthetics (as shown in video)
     decorations = [
-        f"♥ {text} ♥", f"💖 {text} 💖", f"👑 {text} 👑", f"🔥 {text} 🔥", f"✨ {text} ✨",
-        f"★ {text} ★", f"✦ {text} ✦", f" ུ {text} ུ ", f"꧁༺ {text} ༻꧂", f"【{text}】",
-        f"『{text}』", f"（{text}）", f"【 ⚡ {text} ⚡ 】", f"➳ {text} ❥", f"⋆ {text} ⋆",
-        f"⟦ {text} ⟧", f"⟨ {text} ⟩", f"⟅ {text} ⟆", f"⦅ {text} ⦆", f"【 {text} 】",
-        f"《 {text} 》", f"〈 {text} 〉", f"⦃ {text} ⦄", f"⟪ {text} ⟫", f"⦉ {text} ⦊",
-        f"•·.·´¯`·.·• {text} •·.·´¯`·.·•", f"¤¸¸.•´¯`•.¸¸.¤ {text} ¤¸¸.•´¯`•.¸¸.¤",
-        f"§{~*~}{text}{{~*~}}§", f"▀▄▀▄▀▄ {text} ▄▀▄▀▄▀", f"░▒▓█ {text} █▓▒░",
-        f"¯\\_(ツ)_/¯ {text}", f"(｡◕‿◕｡) {text}", f"ʕ•ᴥ•ʔ {text}", f"(っ◔◡◔)っ ♥ {text} ♥",
-        f"╚» {text} «╝", f"╔═.♥.═╗ {text} ╚═.♥.═╝", f"┌(▀Ĺ▀l|)┐ {text}"
+        "♥ " + text + " ♥", "💖 " + text + " 💖", "👑 " + text + " 👑", "🔥 " + text + " 🔥", "✨ " + text + " ✨",
+        "★ " + text + " ★", "✦ " + text + " ✦", " ུ " + text + " ུ ", "꧁༺ " + text + " ༻꧂", "【" + text + "】",
+        "『" + text + "』", "（" + text + "）", "【 ⚡ " + text + " ⚡ 】", "➳ " + text + " ❥", "⋆ " + text + " ⋆",
+        "⟦ " + text + " ⟧", "⟨ " + text + " ⟩", "⟅ " + text + " ⟆", "⦅ " + text + " ⦆", "【 " + text + " 】",
+        "《 " + text + " 》", "〈 " + text + " 〉", "⦃ " + text + " ⦄", "⟪ " + text + " ⟫", "⦉ " + text + " ⦊",
+        "•·.·´¯`·.·• " + text + " •·.·´¯`·.·•", "¤¸¸.•´¯`•.¸¸.¤ " + text + " ¤¸¸.•´¯`•.¸¸.¤",
+        "§{~*~}" + text + "{~*~}§", "▀▄▀▄▀▄ " + text + " ▄▀▄▀▄▀", "░▒▓█ " + text + " █▓▒░",
+        "¯\\_(ツ)_/¯ " + text, "(｡◕‿◕｡) " + text, "ʕ•ᴥ•ʔ " + text, "(っ◔◡◔)っ ♥ " + text + " ♥",
+        "╚» " + text + " «╝", "╔═.♥.═╗ " + text + " ╚═.♥.═╝", "┌(▀Ĺ▀l|)┐ " + text
     ]
     styles.extend(decorations)
 
-    # 61-100 Expanding through combined unicode accents & creative styles to match 100 items
     accents_combos = [
         ('\u0334', '\u0335'), ('\u0337', '\u0338'), ('\u0339', ''), ('\u033A', ''),
         ('\u033B', ''), ('\u033C', ''), ('\u033F', ''), ('\u0346', ''),
@@ -200,23 +194,21 @@ def generate_fancy_styles(text):
     for ac1, ac2 in accents_combos:
         styles.append("".join([c + ac1 + ac2 for c in text]))
 
-    # Generate additional stylized permutations to reach ~100 styles
     base_variants = [
-        f"~*~*{text}*~*~", f"---{text}---", f"=== {text} ===", f"*** {text} ***",
-        f".:*~*:._.:*~*:{text}:*~*:. _.:*~*:.", f"xXx_{text}_xXx", f"°°°{text}°°°",
-        f"•·.·´{text}´·.·•", f"♦{text}♦", f"♠{text}♠", f"♣{text}♣", f"♠{text}♠",
-        f"♫ {text} ♫", f"♬ {text} ♬", f"⚡ {text} ⚡", f"❄️ {text} ❄️", f"☔ {text} ☔"
+        "~*~*" + text + "*~*~", "---" + text + "---", "=== " + text + " ===", "*** " + text + " ***",
+        ".:*~*:._.:*~*:" + text + ":*~*:. _.:*~*.", "xXx_" + text + "_xXx", "°°°" + text + "°°°",
+        "•·.·´" + text + "´·.·•", "♦" + text + "♦", "♠" + text + "♠", "♣" + text + "♣",
+        "♫ " + text + " ♫", "♬ " + text + " ♬", "⚡ " + text + " ⚡", "❄️ " + text + " ❄️", "☔ " + text + " ☔"
     ]
     styles.extend(base_variants)
 
-    # Ensure uniqueness and exact 100+ items limit check
     unique_styles = []
     for s in styles:
         if s not in unique_styles:
             unique_styles.append(s)
             
     while len(unique_styles) < 100:
-        unique_styles.append(f"꧁༺ {text} ⟡ {len(unique_styles)+1} ༻꧂")
+        unique_styles.append("꧁༺ " + text + " ⟡ " + str(len(unique_styles)+1) + " ༻꧂")
 
     return unique_styles[:100]
 
@@ -300,9 +292,9 @@ def send_welcome(message):
         add_user(user_id, first_name)
 
         welcome_text = (
-            f"👋 Hello **{first_name}**!\n\n"
+            "👋 Hello **" + first_name + "**!\n\n"
             "✨ Main ek **Fancy Text Generator Bot** hoon.\n"
-            "💬 Aap koi bhi text bhejiye, main uske **100+ Stylish & Fancy Fonts** bana kar bhejunga!\n\n"
+            "💬 Aap koi भी text bhejiye, main uske **100+ Stylish & Fancy Fonts** bana kar bhejunga!\n\n"
             "👇 Abhi koi text type karke bhejiye:"
         )
         
@@ -329,7 +321,7 @@ def broadcast_command(message):
     sent_count = 0
     fail_count = 0
 
-    status_msg = bot.reply_to(message, f"📢 Broadcasting to {len(users)} users...")
+    status_msg = bot.reply_to(message, "📢 Broadcasting to " + str(len(users)) + " users...")
 
     for uid in users:
         try:
@@ -340,7 +332,7 @@ def broadcast_command(message):
             fail_count += 1
 
     bot.edit_message_text(
-        f"✅ Broadcast Completed!\n\n📤 Sent: {sent_count}\n❌ Failed: {fail_count}",
+        "✅ Broadcast Completed!\n\n📤 Sent: " + str(sent_count) + "\n❌ Failed: " + str(fail_count),
         chat_id=message.chat.id,
         message_id=status_msg.message_id
     )
@@ -358,21 +350,20 @@ def handle_text_messages(message):
 
         add_user(user_id, message.from_user.first_name or "User")
 
-        # Generate 100 styles
         styles = generate_fancy_styles(text)
         top_styles = get_top_preferred_styles(user_id, text)
 
-        response_text = f"🎨 **Fancy Text for:** `{text}`\n\n"
+        response_text = "🎨 **Fancy Text for:** `" + text + "`\n\n"
 
         if top_styles:
             response_text += "⭐ **Aapke Most Used Styles:**\n"
             for idx, st in enumerate(top_styles, 1):
-                response_text += f"{idx}. `{st}`\n"
+                response_text += str(idx) + ". `" + st + "`\n"
             response_text += "\n-------------------\n\n"
 
         response_text += "📋 **All 100 Fancy Styles:**\n"
         for i, style in enumerate(styles, 1):
-            response_text += f"{i}. `{style}`\n"
+            response_text += str(i) + ". `" + style + "`\n"
 
         if len(response_text) > 4000:
             response_text = response_text[:4000] + "\n...(truncated)"
