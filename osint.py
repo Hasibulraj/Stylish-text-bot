@@ -57,7 +57,6 @@ def init_db():
                 PRIMARY KEY (user_id, query_text, selected_style)
             )
         """)
-        # Admin द्वारा जोड़े गए कस्टम फैंसी स्टाइल्स की टेबल
         conn.execute("""
             CREATE TABLE IF NOT EXISTS custom_styles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,7 +148,7 @@ def delete_custom_style_db(style_id):
         conn.close()
 
 
-# ============ MASSIVE FANCY TEXT GENERATOR (100+ STYLES + ADMIN CUSTOM) ============
+# ============ FANCY TEXT GENERATOR ============
 def generate_fancy_styles(text):
     styles = []
     
@@ -159,7 +158,7 @@ def generate_fancy_styles(text):
     i_sans_l = "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"
     b_serif_u = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
     b_serif_l = "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
-    script_u = "𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
+    script_u = "𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦𝒒ℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵"
     script_l = "𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓿𝓌𝓍𝓎𝓏"
     b_script_u = "𝓐𝓑𝓒𝓓𝓔𝓕𝓖𝓗𝓘𝓙𝓚𝓛𝓜𝓝𝘖𝓟𝓠𝓡𝓢𝓣𝓤𝓥𝓦𝓧𝓨𝓩"
     b_script_l = "𝓪𝚋𝓬𝓭𝓮𝓯𝓰𝓱𝓲𝓳𝑘𝑙𝓶𝓷𝓸𝓹𝔺𝓻𝓼𝓽𝓾𝓿𝔀𝔁𝔂𝔃"
@@ -167,8 +166,6 @@ def generate_fancy_styles(text):
     gothic_l = "𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷"
     mono_u = "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉"
     mono_l = "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"
-    db_u = "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ"
-    db_l = "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪🇿"
 
     def c_map(txt, u_str, l_str):
         res = []
@@ -190,7 +187,6 @@ def generate_fancy_styles(text):
     styles.append(c_map(text, b_script_u, b_script_l))
     styles.append(c_map(text, gothic_u, gothic_l))
     styles.append(c_map(text, mono_u, mono_l))
-    styles.append(c_map(text, db_u, db_l))
     styles.append("".join([c + '\u0336' for c in text]))
     styles.append("".join([c + '\u0332' for c in text]))
 
@@ -201,29 +197,22 @@ def generate_fancy_styles(text):
     styles.append("".join([black_circ.get(c, c) for c in text]))
     styles.append(" ".join(list(text.upper())))
     styles.append(" ".join(list(text)))
-    
-    flip_map = {'a':'ɐ','b':'q','c':'ɔ','d':'p','e':'ǝ','f':'ɟ','g':'ƃ','h':'ɥ','i':'ᴉ','j':'ɾ','k':'ʞ','l':'l','m':'ɯ','n':'u','o':'o','p':'d','q':'b','r':'ɹ','s':'s','t':'ʇ','u':'n','v':'ʌ','w':'ʍ','x':'x','y':'ʎ','z':'z'}
-    styles.append("".join([flip_map.get(c.lower(), c) for c in reversed(text)]))
 
     decorations = [
         "♥ " + text + " ♥", "💖 " + text + " 💖", "👑 " + text + " 👑", "🔥 " + text + " 🔥", "✨ " + text + " ✨",
-        "★ " + text + " ★", "✦ " + text + " ✦", " ུ " + text + " ུ ", "꧁༺ " + text + " ༻꧂", "【" + text + "】",
+        "★ " + text + " ★", "✦ " + text + " ✦", "꧁༺ " + text + " ༻꧂", "【" + text + "】",
         "『" + text + "』", "（" + text + "）", "【 ⚡ " + text + " ⚡ 】", "➳ " + text + " ❥", "⋆ " + text + " ⋆",
-        "⟦ " + text + " ⟧", "⟨ " + text + " ⟩", "⟅ " + text + " ⟆", "⦅ " + text + " ⦆", "【 " + text + " 】",
-        "《 " + text + " 》", "〈 " + text + " 〉", "⦃ " + text + " ⦄", "⟪ " + text + " ⟫", "⦉ " + text + " ⦊",
-        "•·.·´¯`·.·• " + text + " •·.·´¯`·.·•", "¤¸¸.•´¯`•.¸¸.¤ " + text + " ¤¸¸.•´¯`•.¸¸.¤",
-        "§{~*~}" + text + "{~*~}§", "▀▄▀▄▀▄ " + text + " ▄▀▄▀▄▀", "░▒▓█ " + text + " █▓▒░",
-        "¯\\_(ツ)_/¯ " + text, "(｡◕‿◕｡) " + text, "ʕ•ᴥ•ʔ " + text, "(っ◔◡◔)っ ♥ " + text + " ♥",
-        "╚» " + text + " «╝", "╔═.♥.═╗ " + text + " ╚═.♥.═╝", "┌(▀Ĺ▀l|)┐ " + text
+        "•·.·´¯`·.·• " + text + " •·.·´¯`·.·•", "▀▄▀▄▀▄ " + text + " ▄▀▄▀▄▀", "░▒▓█ " + text + " █▓▒░",
+        "¯\\_(ツ)_/¯ " + text, "(｡◕‿◕｡) " + text, "(っ◔◡◔)っ ♥ " + text + " ♥", "╚» " + text + " «╝"
     ]
     styles.extend(decorations)
 
-    # Admin द्वारा डेटाबेस में जोड़े गए कस्टम स्टाइल्स को भी इसमें शामिल करना
+    # Admin द्वारा /addstyle से जोड़े गए कस्टम स्टाइल्स को यहाँ अप्लाई किया जाएगा
     custom_rows = get_custom_styles_db()
     for row in custom_rows:
         template = row[1]
         if "{text}" in template:
-            styles.append(template.format(text=text))
+            styles.append(template.replace("{text}", text))
         else:
             styles.append(template + " " + text)
 
@@ -293,18 +282,6 @@ def start_self_ping():
     ).start()
 
 
-# ============ AUTO-DELETE HELPER ============
-def delayed_delete(chat_id, message_ids, delay=15):
-    def worker():
-        time.sleep(delay)
-        for msg_id in message_ids:
-            try:
-                bot.delete_message(chat_id, msg_id)
-            except Exception:
-                pass
-    threading.Thread(target=worker, daemon=True).start()
-
-
 # ============ START COMMAND ============
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
@@ -323,14 +300,13 @@ def send_welcome(message):
         if user_id == ADMIN_ID:
             welcome_text += (
                 "\n\n👑 **Admin Commands:**\n"
-                "/addstyle <template> - Naya fancy style add karein (Jaise: /addstyle ⚡ {text} ⚡)\n"
+                "/addstyle <template> - Naya style add karein (Jaise: /addstyle 🇭 🇮 {text})\n"
                 "/liststyles - Sabhi custom styles dekhein\n"
                 "/delstyle <id> - Style delete karein\n"
                 "/broadcast <msg> - Sabhi ko message bhejein"
             )
 
-        reply_msg = bot.reply_to(message, welcome_text, parse_mode="Markdown")
-        delayed_delete(message.chat.id, [message.message_id, reply_msg.message_id], delay=30)
+        bot.reply_to(message, welcome_text, parse_mode="Markdown")
     except Exception:
         logger.exception("Start command failed")
 
@@ -343,7 +319,7 @@ def add_style_command(message):
 
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(message, "⚠️ Usage: /addstyle ⚡ {text} ⚡\n(Agar {text} nahi likhenge toh text ke aage jud jayega)")
+        bot.reply_to(message, "⚠️ Usage: /addstyle 🇭 🇮 {text}\n(Aap `{text}` likh sakte hain jahan user ka text aayega)")
         return
 
     template = parts[1].strip()
@@ -444,7 +420,6 @@ def handle_text_messages(message):
         for i, style in enumerate(styles, 1):
             response_text += str(i) + ". `" + style + "`\n"
 
-        # यूजर का पसंदीदा/कॉपी किया हुआ स्टाइल बिल्कुल लिस्ट के आखिर में (Bottom) दिखाया जाएगा
         if top_styles:
             fav_style = top_styles[0]
             response_text += "\n⚡_⚡ **Aapka Most Used / Favorite Style:**\n`" + fav_style + "`\n"
@@ -452,8 +427,8 @@ def handle_text_messages(message):
         if len(response_text) > 4000:
             response_text = response_text[:4000] + "\n...(truncated)"
 
-        reply_msg = bot.reply_to(message, response_text, parse_mode="Markdown")
-        delayed_delete(message.chat.id, [message.message_id, reply_msg.message_id], delay=60)
+        # Ab koi bhi message auto-delete nahi hoga, sab screen par rahega
+        bot.reply_to(message, response_text, parse_mode="Markdown")
 
     except Exception:
         logger.exception("Text message handler failed")
