@@ -2,6 +2,7 @@
 import os
 import time
 import html
+import json
 import sqlite3
 import logging
 import threading
@@ -32,11 +33,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("fancy-text-bot")
 
-bot = telebot.TeleBot(
-    BOT_TOKEN,
-    threaded=True,
-    num_threads=4
-)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=4)
+
 
 # ============ DATABASE ============
 
@@ -58,19 +56,17 @@ def init_db():
         """)
 
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                user_id INTEGER,
-                query_text TEXT,
-                selected_style TEXT,
-                count INTEGER DEFAULT 1,
-                PRIMARY KEY (user_id, query_text, selected_style)
+            CREATE TABLE IF NOT EXISTS custom_styles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template TEXT UNIQUE
             )
         """)
 
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS custom_styles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                template TEXT UNIQUE
+            CREATE TABLE IF NOT EXISTS chat_cleanup (
+                chat_id INTEGER PRIMARY KEY,
+                input_message_id INTEGER,
+                output_message_ids TEXT DEFAULT '[]'
             )
         """)
 
@@ -99,8 +95,7 @@ def get_all_users():
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT user_id FROM users
-            WHERE status = 'active'
+            SELECT user_id FROM users WHERE status = 'active'
         """).fetchall()
         return [row[0] for row in rows]
     finally:
@@ -135,9 +130,7 @@ def get_custom_styles_db():
     conn = get_db()
     try:
         return conn.execute("""
-            SELECT id, template
-            FROM custom_styles
-            ORDER BY id
+            SELECT id, template FROM custom_styles ORDER BY id
         """).fetchall()
     finally:
         conn.close()
@@ -146,44 +139,99 @@ def get_custom_styles_db():
 def delete_custom_style_db(style_id):
     conn = get_db()
     try:
-        cursor = conn.execute(
-            "DELETE FROM custom_styles WHERE id = ?",
-            (style_id,)
+        cur = conn.execute(
+            "DELETE FROM custom_styles WHERE id = ?", (style_id,)
         )
         conn.commit()
-        return cursor.rowcount > 0
+        return cur.rowcount > 0
     finally:
         conn.close()
 
 
-# ============ 10 DEFAULT FONTS ============
+def save_cleanup_data(chat_id, input_id, output_ids):
+    conn = get_db()
+    try:
+        conn.execute("""
+            INSERT INTO chat_cleanup
+            (chat_id, input_message_id, output_message_ids)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET
+                input_message_id = excluded.input_message_id,
+                output_message_ids = excluded.output_message_ids
+        """, (chat_id, input_id, json.dumps(output_ids)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_cleanup_data(chat_id):
+    conn = get_db()
+    try:
+        row = conn.execute("""
+            SELECT input_message_id, output_message_ids
+            FROM chat_cleanup WHERE chat_id = ?
+        """, (chat_id,)).fetchone()
+
+        if not row:
+            return None, []
+
+        try:
+            ids = json.loads(row[1] or "[]")
+        except (ValueError, TypeError):
+            ids = []
+
+        return row[0], ids
+    finally:
+        conn.close()
+
+
+# ============ 10 FANCY FONTS ============
 
 def generate_fancy_styles(text):
     styles = []
 
-    double_upper = "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ"
-    double_lower = "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫"
-
-    circled_upper = "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ"
-    circled_lower = "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ"
-
-    negative_upper = "🅐🅑🅒🅓🅔🅕🅖🅗🅘🅙🅚🅛🅜🅝🅞🅟🅠🅡🅢🅣🅤🅥🅦🅧🅨🅩"
-    negative_lower = negative_upper
-
-    squared_upper = "🄰🄱🄲🄳🄴🄵🄶🄷🄸🄹🄺🄻🄼🄽🄾🄿🅀🅁🅂🅃🅄🅅🅆🅇🅈🅉"
-    squared_lower = "abcdefghijklmnopqrstuvwxyz"
-
-    mono_upper = "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉"
-    mono_lower = "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"
-
-    bold_upper = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
-    bold_lower = "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
-
-    italic_bold_upper = "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕"
-    italic_bold_lower = "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞𝙟𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝙪𝙫𝙬𝙭𝙮𝙯"
-
-    bold_sans_upper = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭"
-    bold_sans_lower = "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
+    fonts = [
+        (
+            "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ",
+            "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫"
+        ),
+        (
+            "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ",
+            "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ"
+        ),
+        (
+            "🅐🅑🅒🅓🅔🅕🅖🅗🅘🅙🅚🅛🅜🅝🅞🅟🅠🅡🅢🅣🅤🅥🅦🅧🅨🅩",
+            "🅐🅑🅒🅓🅔🅕🅖🅗🅘🅙🅚🅛🅜🅝🅞🅟🅠🅡🅢🅣🅤🅥🅦🅧🅨🅩"
+        ),
+        (
+            "🄰🄱🄲🄳🄴🄵🄶🄷🄸🄹🄺🄻🄼🄽🄾🄿🅀🅁🅂🅃🅄🅅🅆🅇🅈🅉",
+            "abcdefghijklmnopqrstuvwxyz"
+        ),
+        (
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "abcdefghijklmnopqrstuvwxyz"
+        ),
+        (
+            "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉",
+            "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"
+        ),
+        (
+            "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙",
+            "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
+        ),
+        (
+            "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕",
+            "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞𝙟𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝙪𝙫𝙬𝙭𝙮𝙯"
+        ),
+        (
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "abcdefghijklmnopqrstuvwxyz"
+        ),
+        (
+            "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭",
+            "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
+        )
+    ]
 
     small_caps = {
         "a": "ᴀ", "b": "ʙ", "c": "ᴄ", "d": "ᴅ",
@@ -199,53 +247,27 @@ def generate_fancy_styles(text):
         result = []
         for ch in value:
             if "A" <= ch <= "Z":
-                result.append(upper[ord(ch) - ord("A")])
+                result.append(upper[ord(ch) - 65])
             elif "a" <= ch <= "z":
-                result.append(lower[ord(ch) - ord("a")])
+                result.append(lower[ord(ch) - 97])
             else:
                 result.append(ch)
         return "".join(result)
 
-    # 1. Double-struck
-    styles.append(map_font(text, double_upper, double_lower))
-
-    # 2. Circled
-    styles.append(map_font(text, circled_upper, circled_lower))
-
-    # 3. Negative circled
-    styles.append(map_font(text, negative_upper, negative_lower))
-
-    # 4. Squared uppercase; lowercase has no equivalent full set
-    styles.append(map_font(text, squared_upper, squared_lower))
-
-    # 5. Small caps
-    styles.append("".join(
-        small_caps.get(ch.lower(), ch)
-        if ch.isascii() and ch.isalpha() else ch
-        for ch in text
-    ))
-
-    # 6. Monospace
-    styles.append(map_font(text, mono_upper, mono_lower))
-
-    # 7. Bold serif
-    styles.append(map_font(text, bold_upper, bold_lower))
-
-    # 8. Bold italic sans
-    styles.append(map_font(text, italic_bold_upper, italic_bold_lower))
-
-    # 9. Block decoration
-    styles.append("░" + "░".join(text) + "░")
-
-    # 10. Bold sans uppercase
-    styles.append(map_font(
-        text.upper(), bold_sans_upper, bold_sans_lower
-    ))
+    for i, font in enumerate(fonts):
+        if i == 4:
+            styles.append("".join(
+                small_caps.get(ch.lower(), ch)
+                if ch.isascii() and ch.isalpha() else ch
+                for ch in text
+            ))
+        elif i == 8:
+            styles.append("░" + "░".join(text) + "░")
+        else:
+            styles.append(map_font(text, font[0], font[1]))
 
     return styles
 
-
-# ============ CUSTOM STYLE OUTPUT ============
 
 def get_all_output_styles(text):
     styles = generate_fancy_styles(text)
@@ -259,16 +281,16 @@ def get_all_output_styles(text):
     return styles
 
 
-# ============ SAFE MESSAGE SENDER ============
+# ============ SEND OUTPUT AND TRACK MESSAGE IDS ============
 
 def send_text_chunks(chat_id, text, reply_to_message_id=None):
-    # Keep output below Telegram's message size limit.
     chunks = []
     current = ""
 
     for line in text.split("\n"):
-        if len(line) > 3500:
-            line = line[:3500]
+        while len(line) > 3000:
+            chunks.append(line[:3000])
+            line = line[3000:]
 
         candidate = line if not current else current + "\n" + line
 
@@ -281,17 +303,23 @@ def send_text_chunks(chat_id, text, reply_to_message_id=None):
     if current:
         chunks.append(current)
 
+    sent_ids = []
+
     for index, chunk in enumerate(chunks):
-        bot.send_message(
+        sent = bot.send_message(
             chat_id,
             chunk,
+            parse_mode="HTML",
             reply_to_message_id=(
                 reply_to_message_id if index == 0 else None
             )
         )
+        sent_ids.append(sent.message_id)
+
+    return sent_ids
 
 
-# ============ HEALTH CHECK SERVER ============
+# ============ HEALTH CHECK ============
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -301,7 +329,6 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
 
         body = b"Bot service is running"
-
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -315,8 +342,7 @@ class HealthHandler(BaseHTTPRequestHandler):
 def start_health_server():
     try:
         server = ThreadingHTTPServer(
-            ("0.0.0.0", PORT),
-            HealthHandler
+            ("0.0.0.0", PORT), HealthHandler
         )
         server.daemon_threads = True
         logger.info("Health server listening on port %s", PORT)
@@ -329,7 +355,6 @@ def start_health_server():
 
 def start_self_ping():
     session = requests.Session()
-
     retry = Retry(
         total=2,
         connect=2,
@@ -338,30 +363,42 @@ def start_self_ping():
         status_forcelist=[500, 502, 503, 504],
         allowed_methods=["GET"]
     )
-
     session.mount("https://", HTTPAdapter(max_retries=retry))
 
     def worker():
         time.sleep(20)
-
         while True:
             try:
                 response = session.get(
-                    APP_URL + "/health",
-                    timeout=15
+                    APP_URL + "/health", timeout=15
                 )
                 logger.info("Self-ping: HTTP %s", response.status_code)
                 response.close()
             except requests.RequestException:
                 logger.exception("Self-ping failed")
-
             time.sleep(180)
 
     threading.Thread(
-        target=worker,
-        daemon=True,
-        name="self-ping"
+        target=worker, daemon=True, name="self-ping"
     ).start()
+
+
+# ============ CLEAN PREVIOUS MESSAGES ============
+
+def clean_previous_messages(chat_id):
+    old_input_id, old_output_ids = get_cleanup_data(chat_id)
+
+    if old_input_id:
+        try:
+            bot.delete_message(chat_id, old_input_id)
+        except Exception as exc:
+            logger.info("Could not delete previous input: %s", exc)
+
+    for message_id in old_output_ids:
+        try:
+            bot.delete_message(chat_id, message_id)
+        except Exception as exc:
+            logger.info("Could not delete previous output: %s", exc)
 
 
 # ============ START COMMAND ============
@@ -370,28 +407,27 @@ def start_self_ping():
 def send_welcome(message):
     try:
         user = message.from_user
-
         if not user:
             return
 
         add_user(user.id, user.first_name or "User")
 
         welcome = (
-            "👋 Hello " + (user.first_name or "User") + "!\n\n"
+            "👋 Hello " + html.escape(user.first_name or "User") + "!\n\n"
             "✨ Welcome to Fancy Text Generator Bot.\n"
-            "💬 Send any text to get stylish fonts.\n\n"
+            "💬 Send any text to get 10 stylish fonts.\n\n"
             "👇 Send your text now!"
         )
 
         if user.id == ADMIN_ID:
             welcome += (
                 "\n\n👑 ADMIN COMMANDS\n\n"
-                "/addstyle - Add custom style\n"
+                "/addstyle 👑 {text} 👑 - Add style\n"
                 "/liststyles - List custom styles\n"
-                "/delstyle ID - Delete custom style\n"
-                "/broadcast MESSAGE - Broadcast to users\n"
+                "/delstyle ID - Delete style\n"
+                "/broadcast MESSAGE - Broadcast message\n"
                 "/stats - View bot statistics\n"
-                "/start - Open this menu"
+                "/start - Show this menu"
             )
 
         bot.send_message(message.chat.id, welcome)
@@ -428,11 +464,7 @@ def add_style_command(message):
         return
 
     add_custom_style_db(template)
-
-    bot.reply_to(
-        message,
-        "✅ Custom style save ho gaya!\n\n" + template
-    )
+    bot.reply_to(message, "✅ Custom style save ho gaya!\n\n" + template)
 
 
 # ============ LIST STYLES ============
@@ -448,12 +480,12 @@ def list_styles_command(message):
         bot.reply_to(message, "Abhi koi custom style nahi hai.")
         return
 
-    lines = ["📋 CUSTOM STYLES\n"]
+    lines = ["📋 CUSTOM STYLES", ""]
 
     for style_id, template in rows:
-        lines.append(
-            "ID: " + str(style_id) + "\n" + template + "\n"
-        )
+        lines.append("ID: " + str(style_id))
+        lines.append(html.escape(template))
+        lines.append("")
 
     send_text_chunks(message.chat.id, "\n".join(lines))
 
@@ -478,10 +510,7 @@ def del_style_command(message):
         return
 
     if delete_custom_style_db(style_id):
-        bot.reply_to(
-            message,
-            "🗑️ Style ID " + str(style_id) + " delete ho gaya."
-        )
+        bot.reply_to(message, "🗑️ Style ID " + str(style_id) + " delete ho gaya.")
     else:
         bot.reply_to(message, "Yeh style ID nahi mili.")
 
@@ -496,18 +525,14 @@ def broadcast_command(message):
     parts = (message.text or "").split(maxsplit=1)
 
     if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(
-            message,
-            "Usage: /broadcast Your message here"
-        )
+        bot.reply_to(message, "Usage: /broadcast Your message here")
         return
 
     broadcast_message = parts[1].strip()
     users = get_all_users()
 
-    status_message = bot.reply_to(
-        message,
-        "📢 Broadcast starting...\nUsers: " + str(len(users))
+    status = bot.reply_to(
+        message, "📢 Broadcast starting...\nUsers: " + str(len(users))
     )
 
     sent = 0
@@ -518,18 +543,11 @@ def broadcast_command(message):
             bot.send_message(user_id, broadcast_message)
             sent += 1
             time.sleep(0.05)
-
         except Exception as exc:
             failed += 1
-            error_code = getattr(exc, "error_code", None)
-
-            if error_code == 403:
+            if getattr(exc, "error_code", None) == 403:
                 deactivate_user(user_id)
-
-            logger.warning(
-                "Broadcast failed for user %s: %s",
-                user_id, exc
-            )
+            logger.warning("Broadcast failed for %s: %s", user_id, exc)
 
     try:
         bot.edit_message_text(
@@ -537,13 +555,13 @@ def broadcast_command(message):
             "📤 Sent: " + str(sent) + "\n"
             "❌ Failed: " + str(failed),
             chat_id=message.chat.id,
-            message_id=status_message.message_id
+            message_id=status.message_id
         )
     except Exception:
         logger.exception("Broadcast status update failed")
 
 
-# ============ BOT STATISTICS ============
+# ============ STATS ============
 
 @bot.message_handler(commands=["stats"])
 def stats_command(message):
@@ -551,18 +569,17 @@ def stats_command(message):
         return
 
     conn = get_db()
-
     try:
         total = conn.execute(
             "SELECT COUNT(*) FROM users"
         ).fetchone()[0]
 
         active = conn.execute(
-            "SELECT COUNT(*) FROM users WHERE status = 'active'"
+            "SELECT COUNT(*) FROM users WHERE status='active'"
         ).fetchone()[0]
 
         inactive = conn.execute(
-            "SELECT COUNT(*) FROM users WHERE status = 'inactive'"
+            "SELECT COUNT(*) FROM users WHERE status='inactive'"
         ).fetchone()[0]
 
         custom = conn.execute(
@@ -577,17 +594,13 @@ def stats_command(message):
             "🚫 Inactive users: " + str(inactive) + "\n"
             "🎨 Custom styles: " + str(custom)
         )
-
     finally:
         conn.close()
 
 
 # ============ TEXT HANDLER ============
 
-@bot.message_handler(
-    content_types=["text"],
-    func=lambda message: True
-)
+@bot.message_handler(content_types=["text"], func=lambda message: True)
 def handle_text_messages(message):
     try:
         if not message.from_user:
@@ -599,46 +612,54 @@ def handle_text_messages(message):
             return
 
         if len(text) > 300:
-            bot.reply_to(
-                message,
-                "Please send text up to 300 characters."
-            )
+            bot.reply_to(message, "Please send text up to 300 characters.")
             return
 
-        add_user(
-            message.from_user.id,
-            message.from_user.first_name or "User"
-        )
+        user_id = message.from_user.id
+        chat_id = message.chat.id
+
+        add_user(user_id, message.from_user.first_name or "User")
+
+        # Cleanup only in private chat.
+        # Commands and previous messages are not deleted.
+        if message.chat.type == "private":
+            clean_previous_messages(chat_id)
 
         styles = get_all_output_styles(text)
 
         lines = [
-            "🎨 Fancy Text Generator",
-            "Original: " + text,
+            "🎨 <b>Fancy Text Generator</b>",
             "",
-            "✨ Stylish Fonts:",
+            "📝 <b>Original:</b>",
+            "<code>" + html.escape(text) + "</code>",
+            "",
+            "✨ <b>Stylish Fonts:</b>",
             ""
         ]
 
         for index, style in enumerate(styles, 1):
-            lines.append(str(index) + ". " + style)
+            lines.append(
+                str(index) + ". <code>" + html.escape(style) + "</code>"
+            )
             lines.append("")
 
         output = "\n".join(lines).strip()
 
-        send_text_chunks(
-            message.chat.id,
+        output_ids = send_text_chunks(
+            chat_id,
             output,
-            reply_to_message_id=message.message_id
+            reply_to_message_id=None
         )
+
+        if message.chat.type == "private":
+            save_cleanup_data(
+                chat_id, message.message_id, output_ids
+            )
 
     except Exception:
         logger.exception("Text handler failed")
         try:
-            bot.reply_to(
-                message,
-                "Text process nahi ho paya. Dobara try karein."
-            )
+            bot.reply_to(message, "Text process nahi ho paya. Dobara try karein.")
         except Exception:
             pass
 
@@ -655,7 +676,6 @@ def main():
     ).start()
 
     start_self_ping()
-
     logger.info("Starting Telegram bot polling...")
 
     while True:
@@ -676,3 +696,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                              
