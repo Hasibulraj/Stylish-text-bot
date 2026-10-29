@@ -278,7 +278,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         note = await context.bot.send_message(
             chat_id=message.chat_id,
             text=(
-                "⚠️ These files will be deleted after 10 minutes. "
+                "⚠️ These files will be deleted after 30 minutes. "
                 "Save or forward them now!"
             ),
             reply_to_message_id=sent_ids[-1]
