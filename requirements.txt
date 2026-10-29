@@ -1,7 +1,4 @@
-python-telegram-bot==21.6
-requests==2.32.3
-aiohttp==3.10.5
-pyTelegramBotAPI==4.14.0
-pyTelegramBotAPI
-requests
-flask
+pyTelegramBotAPI==4.29.1
+psycopg2-binary==2.9.10
+Flask==3.1.1
+gunicorn==23.0.0
