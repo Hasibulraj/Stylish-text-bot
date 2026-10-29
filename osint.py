@@ -1,735 +1,306 @@
-
 import os
-import time
-import html
-import json
-import sqlite3
-import logging
 import threading
-import requests
+from flask import Flask
 import telebot
 
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-# ============ CONFIGURATION ============
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-ADMIN_ID = 5989928539
-
-APP_URL = os.environ.get(
-    "APP_URL",
-    "https://osint-s7db.onrender.com"
-).strip().rstrip("/")
-
-PING_URL = "https://stylish-text-bot-1ycc.onrender.com"
-
-PORT = int(os.environ.get("PORT", "10000"))
-DB_PATH = os.environ.get("DB_PATH", "users.db")
-
-if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
-    raise RuntimeError("Please set BOT_TOKEN in Render Environment.")
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
-logger = logging.getLogger("fancy-text-bot")
-
-bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=4)
-
-
-# ============ DATABASE ============
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.execute("PRAGMA busy_timeout = 30000")
-    return conn
-
-
-def init_db():
-    conn = get_db()
-    try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                first_name TEXT,
-                status TEXT DEFAULT 'active'
-            )
-        """)
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS custom_styles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                template TEXT UNIQUE
-            )
-        """)
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS chat_cleanup (
-                chat_id INTEGER PRIMARY KEY,
-                input_message_id INTEGER,
-                output_message_ids TEXT DEFAULT '[]'
-            )
-        """)
-
-        conn.commit()
-        logger.info("Database initialized: %s", DB_PATH)
-    finally:
-        conn.close()
-
-
-def add_user(user_id, first_name):
-    conn = get_db()
-    try:
-        conn.execute("""
-            INSERT INTO users (user_id, first_name, status)
-            VALUES (?, ?, 'active')
-            ON CONFLICT(user_id) DO UPDATE SET
-                first_name = excluded.first_name,
-                status = 'active'
-        """, (user_id, first_name))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_all_users():
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            "SELECT user_id FROM users WHERE status = 'active'"
-        ).fetchall()
-        return [row[0] for row in rows]
-    finally:
-        conn.close()
-
-
-def deactivate_user(user_id):
-    conn = get_db()
-    try:
-        conn.execute(
-            "UPDATE users SET status = 'inactive' WHERE user_id = ?",
-            (user_id,)
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def add_custom_style_db(template):
-    conn = get_db()
-    try:
-        conn.execute(
-            "INSERT OR IGNORE INTO custom_styles (template) VALUES (?)",
-            (template,)
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_custom_styles_db():
-    conn = get_db()
-    try:
-        return conn.execute(
-            "SELECT id, template FROM custom_styles ORDER BY id"
-        ).fetchall()
-    finally:
-        conn.close()
-
-
-def delete_custom_style_db(style_id):
-    conn = get_db()
-    try:
-        cur = conn.execute(
-            "DELETE FROM custom_styles WHERE id = ?", (style_id,)
-        )
-        conn.commit()
-        return cur.rowcount > 0
-    finally:
-        conn.close()
-
-
-def save_cleanup_data(chat_id, input_id, output_ids):
-    conn = get_db()
-    try:
-        conn.execute("""
-            INSERT INTO chat_cleanup
-            (chat_id, input_message_id, output_message_ids)
-            VALUES (?, ?, ?)
-            ON CONFLICT(chat_id) DO UPDATE SET
-                input_message_id = excluded.input_message_id,
-                output_message_ids = excluded.output_message_ids
-        """, (chat_id, input_id, json.dumps(output_ids)))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_cleanup_data(chat_id):
-    conn = get_db()
-    try:
-        row = conn.execute("""
-            SELECT input_message_id, output_message_ids
-            FROM chat_cleanup WHERE chat_id = ?
-        """, (chat_id,)).fetchone()
-
-        if not row:
-            return None, []
-
-        try:
-            ids = json.loads(row[1] or "[]")
-        except (ValueError, TypeError):
-            ids = []
-
-        return row[0], ids
-    finally:
-        conn.close()
-
-
-# ============ 10 FANCY FONTS ============
-
-def generate_fancy_styles(text):
-    styles = []
-
-    fonts = [
-        (
-            "𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ",
-            "𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫"
-        ),
-        (
-            "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ",
-            "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ"
-        ),
-        (
-            "🅐🅑🅒🅓🅔🅕🅖🅗🅘🅙🅚🅛🅜🅝🅞🅟🅠🅡🅢🅣🅤🅥🅦🅧🅨🅩",
-            "🅐🅑🅒🅓🅔🅕🅖🅗🅘🅙🅚🅛🅜🅝🅞🅟🅠🅡🅢🅣🅤🅥🅦🅧🅨🅩"
-        ),
-        (
-            "🄰🄱🄲🄳🄴🄵🄶🄷🄸🄹🄺🄻🄼🄽🄾🄿🅀🅁🅂🅃🅄🅅🅆🅇🅈🅉",
-            "abcdefghijklmnopqrstuvwxyz"
-        ),
-        (
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-            "abcdefghijklmnopqrstuvwxyz"
-        ),
-        (
-            "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉",
-            "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"
-        ),
-        (
-            "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙",
-            "𝐚𝐛𝐜𝐝𝐞𝐟𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
-        ),
-        (
-            "𝘼𝘽𝘾𝘿𝙀𝙁𝙂𝙃𝙄𝙅𝙆𝙇𝙈𝙉𝙊𝙋𝙌𝙍𝙎𝙏𝙐𝙑𝙒𝙓𝙔𝙕",
-            "𝙖𝙗𝙘𝙙𝙚𝙛𝙜𝙝𝙞ｊ𝙠𝙡𝙢𝙣𝙤𝙥𝙦𝙧𝙨𝙩𝚞𝙫𝙬𝙭𝙮𝚣"
-        ),
-        (
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-            "abcdefghijklmnopqrstuvwxyz"
-        ),
-        (
-            "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭",
-            "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝚖𝚗𝚘𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"
-        )
-    ]
-
-    small_caps = {
-        "a": "ᴀ", "b": "ʙ", "c": "ᴄ", "d": "ᴅ",
-        "e": "ᴇ", "f": "ғ", "g": "ɢ", "h": "ʜ",
-        "i": "ɪ", "j": "ᴊ", "k": "ᴋ", "l": "ʟ",
-        "m": "ᴍ", "n": "ɴ", "o": "ᴏ", "p": "ᴘ",
-        "q": "ǫ", "r": "ʀ", "s": "s", "t": "ᴛ",
-        "u": "ᴜ", "v": "ᴠ", "w": "ᴡ", "x": "x",
-        "y": "ʏ", "z": "ᴢ"
-    }
-
-    def map_font(value, upper, lower):
-        result = []
-        for ch in value:
-            if "A" <= ch <= "Z":
-                result.append(upper[ord(ch) - 65])
-            elif "a" <= ch <= "z":
-                result.append(lower[ord(ch) - 97])
-            else:
-                result.append(ch)
-        return "".join(result)
-
-    for i, font in enumerate(fonts):
-        if i == 4:
-            styles.append("".join(
-                small_caps.get(ch.lower(), ch)
-                if ch.isascii() and ch.isalpha() else ch
-                for ch in text
-            ))
-        elif i == 8:
-            styles.append("░" + "░".join(text) + "░")
-        else:
-            styles.append(map_font(text, font[0], font[1]))
-
-    return styles
-
-
-def get_all_output_styles(text):
-    styles = generate_fancy_styles(text)
-
-    for style_id, template in get_custom_styles_db():
-        if "{text}" in template:
-            result = template.replace("{text}", text)
-            if result not in styles:
-                styles.append(result)
-
-    return styles
-
-
-# ============ SEND OUTPUT AND TRACK MESSAGE IDS ============
-
-def send_text_chunks(chat_id, text, reply_to_message_id=None):
-    chunks = []
-    current = ""
-
-    for line in text.split("\n"):
-        while len(line) > 3000:
-            chunks.append(line[:3000])
-            line = line[3000:]
-
-        candidate = line if not current else current + "\n" + line
-
-        if len(candidate) > 3500 and current:
-            chunks.append(current)
-            current = line
-        else:
-            current = candidate
-
-    if current:
-        chunks.append(current)
-
-    sent_ids = []
-
-    for index, chunk in enumerate(chunks):
-        sent = bot.send_message(
-            chat_id,
-            chunk,
-            parse_mode="HTML",
-            reply_to_message_id=(
-                reply_to_message_id if index == 0 else None
-            )
-        )
-        sent_ids.append(sent.message_id)
-
-    return sent_ids
-
-
-# ============ HEALTH CHECK SERVER ============
-
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path not in ("/", "/health"):
-            self.send_response(404)
-            self.end_headers()
-            return
-
-        body = b"Bot service is running"
-
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, fmt, *args):
-        pass
-
-
-def start_health_server():
-    try:
-        server = ThreadingHTTPServer(
-            ("0.0.0.0", PORT), HealthHandler
-        )
-        server.daemon_threads = True
-        logger.info("Health server listening on port %s", PORT)
-        server.serve_forever()
-    except Exception:
-        logger.exception("Health server failed")
-
-
-# ============ EXTERNAL AUTO PING EVERY 2 MINUTES ============
-
-def start_self_ping():
-    session = requests.Session()
-
-    retry = Retry(
-        total=2,
-        connect=2,
-        read=2,
-        backoff_factor=1,
-        status_forcelist=[500, 502, 503, 504],
-        allowed_methods=["GET"]
-    )
-
-    session.mount("https://", HTTPAdapter(max_retries=retry))
-
-    def worker():
-        time.sleep(10)
-
-        while True:
-            try:
-                response = session.get(
-                    PING_URL,
-                    timeout=25
-                )
-
-                logger.info(
-                    "External auto-ping %s: HTTP %s",
-                    PING_URL,
-                    response.status_code
-                )
-                response.close()
-
-            except requests.RequestException as exc:
-                logger.warning("External auto-ping failed: %s", exc)
-
-            time.sleep(120)
-
-    threading.Thread(
-        target=worker,
-        daemon=True,
-        name="external-auto-ping"
-    ).start()
-
-
-# ============ CLEAN PREVIOUS MESSAGES ============
-
-def clean_previous_messages(chat_id):
-    old_input_id, old_output_ids = get_cleanup_data(chat_id)
-
-    if old_input_id:
-        try:
-            bot.delete_message(chat_id, old_input_id)
-        except Exception as exc:
-            logger.info("Could not delete previous input: %s", exc)
-
-    for message_id in old_output_ids:
-        try:
-            bot.delete_message(chat_id, message_id)
-        except Exception as exc:
-            logger.info("Could not delete previous output: %s", exc)
-
-
-# ============ START COMMAND ============
-
-@bot.message_handler(commands=["start"])
-def send_welcome(message):
-    try:
-        user = message.from_user
-        if not user:
-            return
-
-        add_user(user.id, user.first_name or "User")
-
-        welcome = (
-            "👋 Hello " + html.escape(user.first_name or "User") + "!\n\n"
-            "✨ Welcome to Fancy Text Generator Bot.\n"
-            "💬 Send any text to get 10 stylish fonts.\n\n"
-            "👇 Send your text now!"
-        )
-
-        if user.id == ADMIN_ID:
-            welcome += (
-                "\n\n👑 ADMIN COMMANDS\n\n"
-                "/addstyle 👑 {text} 👑 - Add style\n"
-                "/liststyles - List custom styles\n"
-                "/delstyle ID - Delete style\n"
-                "/broadcast MESSAGE - Broadcast message\n"
-                "/stats - View bot statistics\n"
-                "/start - Show this menu"
-            )
-
-        bot.send_message(message.chat.id, welcome)
-
-    except Exception:
-        logger.exception("Start command failed")
-
-
-# ============ ADD STYLE ============
-
-@bot.message_handler(commands=["addstyle"])
-def add_style_command(message):
-    if not message.from_user or message.from_user.id != ADMIN_ID:
-        return
-
-    parts = (message.text or "").split(maxsplit=1)
-
-    if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(
-            message,
-            "Usage:\n/addstyle 👑 {text} 👑\n\n"
-            "Example:\n/addstyle ꧁༺ {text} ༻꧂"
-        )
-        return
-
-    template = parts[1].strip()
-
-    if "{text}" not in template:
-        bot.reply_to(
-            message,
-            "Template mein {text} zaroor hona chahiye.\n"
-            "Example: /addstyle 👑 {text} 👑"
-        )
-        return
-
-    add_custom_style_db(template)
-    bot.reply_to(message, "✅ Custom style save ho gaya!\n\n" + template)
-
-
-# ============ LIST STYLES ============
-
-@bot.message_handler(commands=["liststyles"])
-def list_styles_command(message):
-    if not message.from_user or message.from_user.id != ADMIN_ID:
-        return
-
-    rows = get_custom_styles_db()
-
-    if not rows:
-        bot.reply_to(message, "Abhi koi custom style nahi hai.")
-        return
-
-    lines = ["📋 CUSTOM STYLES", ""]
-
-    for style_id, template in rows:
-        lines.append("ID: " + str(style_id))
-        lines.append(html.escape(template))
-        lines.append("")
-
-    send_text_chunks(message.chat.id, "\n".join(lines))
-
-
-# ============ DELETE STYLE ============
-
-@bot.message_handler(commands=["delstyle"])
-def del_style_command(message):
-    if not message.from_user or message.from_user.id != ADMIN_ID:
-        return
-
-    parts = (message.text or "").split(maxsplit=1)
-
-    if len(parts) < 2:
-        bot.reply_to(message, "Usage: /delstyle 1")
-        return
-
-    try:
-        style_id = int(parts[1].strip())
-    except ValueError:
-        bot.reply_to(message, "Style ID number honi chahiye.")
-        return
-
-    if delete_custom_style_db(style_id):
-        bot.reply_to(
-            message,
-            "🗑️ Style ID " + str(style_id) + " delete ho gaya."
+# =========================
+# CONFIGURATION & INITIALIZATION
+# =========================
+TOKEN = "YOUR_BOT_TOKEN"  # यहाँ अपना असली टेलीग्राम बोट टोकन डालें
+bot = telebot.TeleBot(TOKEN)
+
+PRIVATE_CHANNEL_ID = -1003876247954
+ADMIN_USER_ID = 5989928539
+
+# इन-मेमोरी स्टोरेज (डेटाबेस के लिए)
+db_storage = {}
+user_sessions = {}
+user_data_store = {}
+
+# =========================
+# FLASK KEEP-ALIVE FOR RENDER (24/7 Active)
+# =========================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running live on Render!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+
+# =========================
+# /start COMMAND & FILE SHARING
+# =========================
+@bot.message_handler(commands=['start'])
+def handle_start(message):
+    text_parts = message.text.split(" ", 1)
+    params = text_parts[1] if len(text_parts) > 1 else None
+
+    if not params or params == "None":
+        bot.send_message(
+            chat_id=message.chat.id,
+            text=(
+                "<b>📁 Welcome to File Sharing Bot!</b>\n\n"
+                "⚡ <b>Send me any file to get a shareable link instantly.</b>\n\n"
+                "<i>• Multiple formats supported\n"
+                "• Secure & fast sharing</i>"
+            ),
+            parse_mode="html"
         )
     else:
-        bot.reply_to(message, "Yeh style ID nahi mili.")
+        media_id = str(params)
+        user_id = str(message.from_user.id)
+        files = db_storage.get(media_id)
+
+        if not files:
+            bot.send_message(message.chat.id, "⚠️ File not found or expired.")
+        else:
+            # UNIQUE USER STATISTICS
+            all_users_key = "stats_unique_users"
+            file_users_key = "stats_file_users_" + media_id
+
+            all_users = db_storage.get(all_users_key, [])
+            file_users = db_storage.get(file_users_key, [])
+
+            if user_id not in all_users:
+                all_users.append(user_id)
+                db_storage[all_users_key] = all_users
+
+            if user_id not in file_users:
+                file_users.append(user_id)
+                db_storage[file_users_key] = file_users
+
+            # SEND FILES VIA COPY MESSAGE (Removes Forward Tag, Keeps .apk Name)
+            sent_msgs = []
+            last_message_id = None
+
+            for f in files:
+                m = None
+                try:
+                    m = bot.copy_message(
+                        chat_id=message.chat.id,
+                        from_chat_id=f["chat_id"],
+                        message_id=f["message_id"]
+                    )
+                except Exception:
+                    pass
+
+                if m and m.message_id:
+                    sent_msgs.append(m.message_id)
+                    last_message_id = m.message_id
+
+            # EXPIRY WARNING
+            if last_message_id:
+                try:
+                    note = bot.send_message(
+                        chat_id=message.chat.id,
+                        text="⚠️ File will be deleted in 29 min. Forward or save it now!",
+                        reply_to_message_id=last_message_id
+                    )
+                    if note and note.message_id:
+                        sent_msgs.append(note.message_id)
+                except:
+                    pass
+
+            # AUTO DELETE AFTER 30 MIN (1800 seconds)
+            if sent_msgs:
+                def delete_expired_msgs():
+                    for mid in sent_msgs:
+                        try:
+                            bot.delete_message(chat_id=message.chat.id, message_id=mid)
+                        except:
+                            pass
+                
+                t = threading.Timer(1800.0, delete_expired_msgs)
+                t.start()
 
 
-# ============ BROADCAST ============
-
-@bot.message_handler(commands=["broadcast"])
-def broadcast_command(message):
-    if not message.from_user or message.from_user.id != ADMIN_ID:
+# =========================
+# /info COMMAND
+# =========================
+@bot.message_handler(commands=['info'])
+def handle_info(message):
+    parts = message.text.split(" ", 1)
+    if len(parts) == 1:
+        msg = bot.send_message(
+            message.chat.id,
+            "⚠️ <b>Invalid Usage!</b>\n\n📌 <b>Usage:</b> <code>/info MEDIA_ID</code>",
+            parse_mode="html"
+        )
+        def del_msg():
+            try:
+                bot.delete_message(message.chat.id, msg.message_id)
+            except:
+                pass
+        threading.Timer(200.0, del_msg).start()
         return
 
-    parts = (message.text or "").split(maxsplit=1)
+    media_id = parts[1].strip()
+    files = db_storage.get(media_id)
 
-    if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(message, "Usage: /broadcast Your message here")
+    if not files:
+        msg = bot.send_message(
+            message.chat.id,
+            f"❌ <b>File Not Found!</b>\n\n🆔 <code>{media_id}</code>",
+            parse_mode="html"
+        )
         return
 
-    broadcast_message = parts[1].strip()
-    users = get_all_users()
+    file_users = db_storage.get("stats_file_users_" + media_id, [])
+    unique_downloaders = len(set(map(str, file_users)))
 
-    status = bot.reply_to(
-        message,
-        "📢 Broadcast starting...\nUsers: " + str(len(users))
+    bot.send_message(
+        message.chat.id,
+        f"📊 <b>FILE Status:</b>\n👥 <b>Total Download:</b> {unique_downloaders}",
+        parse_mode="html"
     )
 
-    sent = 0
-    failed = 0
 
-    for user_id in users:
-        try:
-            bot.send_message(user_id, broadcast_message)
-            sent += 1
-            time.sleep(0.05)
-        except Exception as exc:
-            failed += 1
-            if getattr(exc, "error_code", None) == 403:
-                deactivate_user(user_id)
-            logger.warning("Broadcast failed for %s: %s", user_id, exc)
+# =========================
+# CALLBACK QUERY (UPLOAD NOW BUTTON)
+# =========================
+@bot.callback_query_handler(func=lambda call: call.data == "upload_now")
+def callback_upload_now(call):
+    chat_id = call.message.chat.id
+    data = user_data_store.get(chat_id, {}).get("upload_pending")
 
-    try:
-        bot.edit_message_text(
-            "✅ Broadcast complete!\n\n"
-            "📤 Sent: " + str(sent) + "\n"
-            "❌ Failed: " + str(failed),
-            chat_id=message.chat.id,
-            message_id=status.message_id
-        )
-    except Exception:
-        logger.exception("Broadcast status update failed")
+    if data:
+        media_id = data["media_id"]
+        files = data["files"]
+        media_message_id = data.get("media_message_id")
 
+        # Save to database
+        db_storage[media_id] = files
 
-# ============ STATS ============
+        shareable_link = f"https://telegram.me/{bot.get_me().username}?start={media_id}"
 
-@bot.message_handler(commands=["stats"])
-def stats_command(message):
-    if not message.from_user or message.from_user.id != ADMIN_ID:
-        return
-
-    conn = get_db()
-    try:
-        total = conn.execute(
-            "SELECT COUNT(*) FROM users"
-        ).fetchone()[0]
-
-        active = conn.execute(
-            "SELECT COUNT(*) FROM users WHERE status='active'"
-        ).fetchone()[0]
-
-        inactive = conn.execute(
-            "SELECT COUNT(*) FROM users WHERE status='inactive'"
-        ).fetchone()[0]
-
-        custom = conn.execute(
-            "SELECT COUNT(*) FROM custom_styles"
-        ).fetchone()[0]
+        # Clear pending data
+        user_data_store[chat_id]["upload_pending"] = None
+        
+        # Delete old button message
+        button_msg_id = user_data_store.get(chat_id, {}).get("upload_button_message_id")
+        if button_msg_id:
+            try:
+                bot.delete_message(chat_id, button_msg_id)
+            except:
+                pass
 
         bot.send_message(
-            message.chat.id,
-            "📊 BOT STATISTICS\n\n"
-            "👥 Total users: " + str(total) + "\n"
-            "✅ Active users: " + str(active) + "\n"
-            "🚫 Inactive users: " + str(inactive) + "\n"
-            "🎨 Custom styles: " + str(custom)
+            chat_id=chat_id,
+            text=f"✅ Upload complete!\n\n🔗 Shareable Link:\n{shareable_link}",
+            reply_to_message_id=media_message_id
         )
-    finally:
-        conn.close()
+    else:
+        bot.send_message(chat_id, "❌ File not found. Please send the file again.")
 
 
-# ============ TEXT HANDLER ============
+# =========================
+# ALL MEDIA & FILE HANDLER
+# =========================
+@bot.message_handler(content_types=['photo', 'video', 'audio', 'voice', 'document', 'animation', 'sticker', 'text'])
+def handle_all_messages(message):
+    chat_id = message.chat.id
+    text = message.text
 
-@bot.message_handler(
-    content_types=["text"],
-    func=lambda message: True
-)
-def handle_text_messages(message):
-    try:
-        if not message.from_user:
-            return
+    # Finish upload command check
+    if text == "✅":
+        session = user_data_store.get(chat_id, {}).get("upload_pending")
+        if session and session.get("files"):
+            media_id = session["media_id"]
+            files = session["files"]
+            db_storage[media_id] = files
 
-        text = (message.text or "").strip()
+            shareable_link = f"https://telegram.me/{bot.get_me().username}?start={media_id}"
+            bot.send_message(chat_id, f"✅ Upload complete!\n\n🔗 Share this link:\n{shareable_link}")
+            user_data_store[chat_id]["upload_pending"] = None
+        else:
+            bot.send_message(chat_id, "❌ No media was uploaded.")
+        return
 
-        if not text or text.startswith("/"):
-            return
+    # Check if input is a media file
+    media_types = ['photo', 'video', 'audio', 'voice', 'document', 'animation', 'sticker']
+    is_media = any(getattr(message, mt, None) is not None for mt in media_types)
 
-        if len(text) > 300:
-            bot.reply_to(
-                message,
-                "Please send text up to 300 characters."
-            )
-            return
-
-        user_id = message.from_user.id
-        chat_id = message.chat.id
-
-        add_user(user_id, message.from_user.first_name or "User")
-
-        if message.chat.type == "private":
-            clean_previous_messages(chat_id)
-
-        styles = get_all_output_styles(text)
-
-        lines = [
-            "🎨 <b>Fancy Text Generator</b>",
-            "",
-            "📝 <b>Original:</b>",
-            "<code>" + html.escape(text) + "</code>",
-            "",
-            "✨ <b>Stylish Fonts:</b>",
-            ""
-        ]
-
-        for index, style in enumerate(styles, 1):
-            lines.append(
-                str(index) + ". <code>" + html.escape(style) + "</code>"
-            )
-            lines.append("")
-
-        output = "\n".join(lines).strip()
-
-        output_ids = send_text_chunks(
-            chat_id,
-            output,
-            reply_to_message_id=None
-        )
-
-        if message.chat.type == "private":
-            save_cleanup_data(
-                chat_id,
-                message.message_id,
-                output_ids
-            )
-
-    except Exception:
-        logger.exception("Text handler failed")
+    if is_media:
+        # 1. सबसे पहले फाइल को आपके प्राइवेट चैनल में फॉरवर्ड करें ताकि .apk नाम/एक्सटेंशन सुरक्षित रहे
+        forwarded_msg = None
         try:
-            bot.reply_to(
-                message,
-                "Text process nahi ho paya. Dobara try karein."
+            forwarded_msg = bot.forward_message(
+                chat_id=PRIVATE_CHANNEL_ID,
+                from_chat_id=chat_id,
+                message_id=message.message_id
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Forward error: {e}")
+
+        if forwarded_msg and forwarded_msg.message_id:
+            media_entry = {
+                "chat_id": PRIVATE_CHANNEL_ID,
+                "message_id": forwarded_msg.message_id
+            }
+
+            if chat_id not in user_data_store:
+                user_data_store[chat_id] = {}
+
+            pending_data = user_data_store[chat_id].get("upload_pending")
+
+            if pending_data and "files" in pending_data:
+                pending_data["files"].append(media_entry)
+                pending_data["media_message_id"] = message.message_id
+                total_files = len(pending_data["files"])
+
+                # Purana button delete karo
+                old_btn = user_data_store[chat_id].get("upload_button_message_id")
+                if old_btn:
+                    try:
+                        bot.delete_message(chat_id, old_btn)
+                    except:
+                        pass
+
+                markup = telebot.types.InlineKeyboardMarkup()
+                markup.add(telebot.types.InlineKeyboardButton("⬆️ Upload Now", callback_data="upload_now"))
+
+                sent = bot.send_message(
+                    chat_id,
+                    f"📁 Total Files Received: {total_files}\n\n👇 Aur file bhejo ya Upload Now dabao.",
+                    reply_to_message_id=message.message_id,
+                    reply_markup=markup
+                )
+                user_data_store[chat_id]["upload_button_message_id"] = sent.message_id
+
+            else:
+                media_id = f"{chat_id}_{message.message_id}"
+                user_data_store[chat_id]["upload_pending"] = {
+                    "media_id": media_id,
+                    "files": [media_entry],
+                    "media_message_id": message.message_id
+                }
+
+                markup = telebot.types.InlineKeyboardMarkup()
+                markup.add(telebot.types.InlineKeyboardButton("⬆️ Upload Now", callback_data="upload_now"))
+
+                sent = bot.send_message(
+                    chat_id,
+                    "📁 File receive!\n\n👇 Aur files bhejo ya Upload Now dabao.",
+                    reply_to_message_id=message.message_id,
+                    reply_markup=markup
+                )
+                user_data_store[chat_id]["upload_button_message_id"] = sent.message_id
+        else:
+            bot.send_message(chat_id, "❌ Failed to save file in private channel. Ensure bot is admin there!")
 
 
-# ============ MAIN ============
-
-def main():
-    init_db()
-
-    threading.Thread(
-        target=start_health_server,
-        daemon=True,
-        name="health-server"
-    ).start()
-
-    start_self_ping()
-
-    logger.info("Starting Telegram bot polling...")
-
-    while True:
-        try:
-            bot.infinity_polling(
-                timeout=30,
-                long_polling_timeout=25,
-                allowed_updates=["message"],
-                skip_pending=False
-            )
-
-        except KeyboardInterrupt:
-            logger.info("Shutdown requested")
-            break
-
-        except Exception:
-            logger.exception(
-                "Polling failed; retrying in 5 seconds"
-            )
-            time.sleep(5)
-
-
+# =========================
+# MAIN ENTRY POINT
+# =========================
 if __name__ == "__main__":
-    main()
+    # Flask सर्वर को बैकग्राउंड में चलाना ताकि Render इसे लाइव रखे
+    t = threading.Thread(target=run_flask)
+    t.start()
+
+    print("Bot is starting polling...")
+    bot.infinity_polling()
     
