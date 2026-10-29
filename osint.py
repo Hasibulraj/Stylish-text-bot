@@ -94,7 +94,9 @@ def count_file_users(media_id):
             "SELECT COUNT(*) FROM file_users WHERE media_id=?", (str(media_id),)
         ).fetchone()
     return row[0] if row else 0
-    def format_bytes(size):
+
+
+def format_bytes(size):
     """Return a human-readable file size."""
     value = float(size)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -354,7 +356,6 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Don't let admin commands enter the upload collection.
     if message.text and message.text.startswith("/"):
         return
-
     await backup_to_secret(message, context)
 
     sessions = context.application.bot_data.setdefault("sessions", {})
