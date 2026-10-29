@@ -12,8 +12,8 @@ from telegram.ext import (
 # Set these in Render -> Environment
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = 5989928539
-DB_CHANNEL_ID = -1004377906598
-SECRET_CHANNEL_ID = -1004324519714
+DB_CHANNEL_ID = -1003954392340
+SECRET_CHANNEL_ID = -1004490787792
 DB_PATH = os.environ.get("DB_PATH", "bot_data.sqlite3")
 
 logging.basicConfig(
