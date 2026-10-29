@@ -4,6 +4,7 @@ import sqlite3
 import asyncio
 import logging
 import urllib.request
+from pathlib import Path
 from urllib.error import URLError, HTTPError
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -129,7 +130,7 @@ def database_storage_report():
     )
 
 
-async def storage_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user or not is_admin(user.id):
         return
@@ -285,7 +286,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         sent_ids.append(note.message_id)
 
-        # Kept as in the supplied code: deletion after 30 minutes (1800 seconds).
         context.job_queue.run_once(
             delete_many, 1800,
             data={"chat_id": message.chat_id, "message_ids": sent_ids}
@@ -353,7 +353,6 @@ async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not kind:
         return
 
-    # Don't let admin commands enter the upload collection.
     if message.text and message.text.startswith("/"):
         return
     await backup_to_secret(message, context)
@@ -501,113 +500,54 @@ async def upload_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sessions.pop(key, None)
 
 
-# ---------------- BROADCAST ----------------
+# ---------------- BROADCAST (NEW SYSTEM) ----------------
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
     user = update.effective_user
     if not user or not is_admin(user.id):
-        return  # no reply to non-admins
-    await update.effective_message.reply_text(
-        "📢 Broadcast is ready.\n\n"
-        "Send a text/photo/video/file, then edit that same message. "
-        "The edited message will show Send Broadcast and Cancel buttons.\n\n"
-        "Cancel command: /cancelbroadcast"
-    )
-
-
-async def edited_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.edited_message
-    user = update.effective_user
-    if not message or not user or not is_admin(user.id):
         return
 
-    # Only show broadcast prompt after admin has explicitly enabled broadcast mode.
-    # /broadcast enables it; /cancelbroadcast disables it.
-    if not context.application.bot_data.get("broadcast_mode", False):
+    # If not replying to a message and no content provided
+    if not message.reply_to_message:
+        await message.reply_text(
+            "<b>🎙️ Reply to any message or send content with /broadcast to broadcast in HTML\n\nTo Cancel: /cancel</b>",
+            parse_mode="HTML"
+        )
         return
 
-    context.application.bot_data["broadcast_pending"] = {
-        "chat_id": message.chat_id,
-        "message_id": message.message_id
-    }
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 Send Broadcast", callback_data="bc_send")],
-        [InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]
-    ])
-    await message.reply_text(
-        "📢 Is edited message ko sabhi registered users ko bhejna hai?",
-        reply_markup=keyboard
-    )
-
-
-async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not is_admin(query.from_user.id):
-        return
-
-    if query.data == "bc_cancel":
-        context.application.bot_data.pop("broadcast_pending", None)
-        context.application.bot_data["broadcast_mode"] = False
-        await query.message.reply_text("❌ Broadcast cancelled.")
-        return
-
-    pending = context.application.bot_data.get("broadcast_pending")
-    if not pending:
-        await query.message.reply_text("❌ No broadcast message selected.")
-        return
-
+    target_message = message.reply_to_message
     users = get_users()
-    sent = 0
-    failed = 0
-    blocked = 0
-    status = await query.message.reply_text(
-        f"🚀 Broadcast started...\n👥 Total users: {len(users)}"
-    )
+
+    status_msg = await message.reply_text("<b>🔁 Broadcast Processing...</b>", parse_mode="HTML")
+
+    success = 0
+    fail = 0
 
     for uid in users:
         try:
             await context.bot.copy_message(
                 chat_id=uid,
-                from_chat_id=pending["chat_id"],
-                message_id=pending["message_id"]
+                from_chat_id=target_message.chat_id,
+                message_id=target_message.message_id
             )
-            sent += 1
+            success += 1
             await asyncio.sleep(0.04)
-        except Exception as exc:
-            failed += 1
-            error = str(exc).lower()
-            if any(term in error for term in (
-                "bot was blocked", "user is deactivated", "chat not found",
-                "bot can't initiate conversation"
-            )):
-                blocked += 1
+        except Exception:
+            fail += 1
             await asyncio.sleep(0.04)
 
-    context.application.bot_data.pop("broadcast_pending", None)
-    context.application.bot_data["broadcast_mode"] = False
+    total = len(users)
+    txt = f"""<b>
+🎙️ Broadcast Done
+    
+👥 Total: {total}
+✅ Success: {success}
+❌ Failed: {fail}
+</b>"""
     try:
-        await status.edit_text(
-            "✅ <b>BROADCAST COMPLETE</b>\n\n"
-            f"👥 Total Users: {len(users)}\n"
-            f"📨 Successfully Sent: {sent}\n"
-            f"🚫 Blocked (detected): {blocked}\n"
-            f"❌ Failed: {failed}",
-            parse_mode="HTML"
-        )
+        await status_msg.edit_text(txt, parse_mode="HTML")
     except Exception:
-        await query.message.reply_text(
-            f"✅ Broadcast complete\nTotal: {len(users)}\nSent: {sent}\n"
-            f"Blocked (detected): {blocked}\nFailed: {failed}"
-        )
-
-
-async def cancel_broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not user or not is_admin(user.id):
-        return
-    context.application.bot_data.pop("broadcast_pending", None)
-    context.application.bot_data["broadcast_mode"] = False
-    await update.effective_message.reply_text("❌ Broadcast cancelled.")
+        await message.reply_text(txt, parse_mode="HTML")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -620,33 +560,17 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("info", info))
-    app.add_handler(CommandHandler("storage", storage_command))
-    app.add_handler(CommandHandler("cancelbroadcast", cancel_broadcast_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CallbackQueryHandler(upload_now, pattern=r"^upload_now$"))
-    app.add_handler(CallbackQueryHandler(broadcast_callback, pattern=r"^bc_(send|cancel)$"))
 
-    # /broadcast enables edit detection, without colliding with upload handling.
-    async def enable_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user = update.effective_user
-        if not user or not is_admin(user.id):
-            return
-        context.application.bot_data["broadcast_mode"] = True
-        await update.effective_message.reply_text(
-            "✅ Broadcast mode ON.\n\nAb koi bhi apna message/file bhejo aur usi message ko Edit karo. "
-            "Edit ke baad Send Broadcast button aayega.\n/cancelbroadcast se band karo."
-        )
-
-    # Replace the normal /broadcast handler with the mode-enabling version.
-    app.add_handler(CommandHandler("broadcast", enable_broadcast), group=1)
-    app.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE, edited_message), group=0)
     app.add_handler(
         MessageHandler(filters.ALL & ~filters.COMMAND, receive_message),
         group=0
     )
     app.add_error_handler(error_handler)
 
-    # Ping the companion Render URL every 2 minutes. This can help keep that
-    # web service active, but Render may still sleep free services by policy.
+    # Ping the companion Render URL every 2 minutes
     app.job_queue.run_repeating(keepalive_ping, interval=120, first=1, name="keepalive_ping")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
