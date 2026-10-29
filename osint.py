@@ -1,306 +1,484 @@
+
 import os
+import time
+import uuid
+import logging
 import threading
-from flask import Flask
+import psycopg2
 import telebot
 
-# =========================
-# CONFIGURATION & INITIALIZATION
-# =========================
-TOKEN = "YOUR_BOT_TOKEN"  # यहाँ अपना असली टेलीग्राम बोट टोकन डालें
-bot = telebot.TeleBot(TOKEN)
+from psycopg2.extras import RealDictCursor
+from flask import Flask, request, abort
 
-PRIVATE_CHANNEL_ID = -1003876247954
-ADMIN_USER_ID = 5989928539
+# ==================================================
+# CONFIGURATION - Set these in Render Environment
+# ==================================================
 
-# इन-मेमोरी स्टोरेज (डेटाबेस के लिए)
-db_storage = {}
-user_sessions = {}
-user_data_store = {}
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "").strip()
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip().rstrip("/")
+PORT = int(os.environ.get("PORT", "10000"))
 
-# =========================
-# FLASK KEEP-ALIVE FOR RENDER (24/7 Active)
-# =========================
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is missing")
+
+if not CHANNEL_ID:
+    raise RuntimeError("CHANNEL_ID is missing")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is missing")
+
+CHANNEL_ID = int(CHANNEL_ID)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
+
+logger = logging.getLogger(__name__)
+
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "Bot is running live on Render!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+BOT_USERNAME = None
+DB_LOCK = threading.RLock()
 
 
-# =========================
-# /start COMMAND & FILE SHARING
-# =========================
-@bot.message_handler(commands=['start'])
-def handle_start(message):
-    text_parts = message.text.split(" ", 1)
-    params = text_parts[1] if len(text_parts) > 1 else None
+# ==================================================
+# DATABASE
+# ==================================================
 
-    if not params or params == "None":
-        bot.send_message(
-            chat_id=message.chat.id,
-            text=(
-                "<b>📁 Welcome to File Sharing Bot!</b>\n\n"
-                "⚡ <b>Send me any file to get a shareable link instantly.</b>\n\n"
-                "<i>• Multiple formats supported\n"
-                "• Secure & fast sharing</i>"
-            ),
-            parse_mode="html"
-        )
-    else:
-        media_id = str(params)
-        user_id = str(message.from_user.id)
-        files = db_storage.get(media_id)
-
-        if not files:
-            bot.send_message(message.chat.id, "⚠️ File not found or expired.")
-        else:
-            # UNIQUE USER STATISTICS
-            all_users_key = "stats_unique_users"
-            file_users_key = "stats_file_users_" + media_id
-
-            all_users = db_storage.get(all_users_key, [])
-            file_users = db_storage.get(file_users_key, [])
-
-            if user_id not in all_users:
-                all_users.append(user_id)
-                db_storage[all_users_key] = all_users
-
-            if user_id not in file_users:
-                file_users.append(user_id)
-                db_storage[file_users_key] = file_users
-
-            # SEND FILES VIA COPY MESSAGE (Removes Forward Tag, Keeps .apk Name)
-            sent_msgs = []
-            last_message_id = None
-
-            for f in files:
-                m = None
-                try:
-                    m = bot.copy_message(
-                        chat_id=message.chat.id,
-                        from_chat_id=f["chat_id"],
-                        message_id=f["message_id"]
-                    )
-                except Exception:
-                    pass
-
-                if m and m.message_id:
-                    sent_msgs.append(m.message_id)
-                    last_message_id = m.message_id
-
-            # EXPIRY WARNING
-            if last_message_id:
-                try:
-                    note = bot.send_message(
-                        chat_id=message.chat.id,
-                        text="⚠️ File will be deleted in 29 min. Forward or save it now!",
-                        reply_to_message_id=last_message_id
-                    )
-                    if note and note.message_id:
-                        sent_msgs.append(note.message_id)
-                except:
-                    pass
-
-            # AUTO DELETE AFTER 30 MIN (1800 seconds)
-            if sent_msgs:
-                def delete_expired_msgs():
-                    for mid in sent_msgs:
-                        try:
-                            bot.delete_message(chat_id=message.chat.id, message_id=mid)
-                        except:
-                            pass
-                
-                t = threading.Timer(1800.0, delete_expired_msgs)
-                t.start()
-
-
-# =========================
-# /info COMMAND
-# =========================
-@bot.message_handler(commands=['info'])
-def handle_info(message):
-    parts = message.text.split(" ", 1)
-    if len(parts) == 1:
-        msg = bot.send_message(
-            message.chat.id,
-            "⚠️ <b>Invalid Usage!</b>\n\n📌 <b>Usage:</b> <code>/info MEDIA_ID</code>",
-            parse_mode="html"
-        )
-        def del_msg():
-            try:
-                bot.delete_message(message.chat.id, msg.message_id)
-            except:
-                pass
-        threading.Timer(200.0, del_msg).start()
-        return
-
-    media_id = parts[1].strip()
-    files = db_storage.get(media_id)
-
-    if not files:
-        msg = bot.send_message(
-            message.chat.id,
-            f"❌ <b>File Not Found!</b>\n\n🆔 <code>{media_id}</code>",
-            parse_mode="html"
-        )
-        return
-
-    file_users = db_storage.get("stats_file_users_" + media_id, [])
-    unique_downloaders = len(set(map(str, file_users)))
-
-    bot.send_message(
-        message.chat.id,
-        f"📊 <b>FILE Status:</b>\n👥 <b>Total Download:</b> {unique_downloaders}",
-        parse_mode="html"
+def get_connection():
+    return psycopg2.connect(
+        DATABASE_URL,
+        connect_timeout=15,
+        cursor_factory=RealDictCursor
     )
 
 
-# =========================
-# CALLBACK QUERY (UPLOAD NOW BUTTON)
-# =========================
-@bot.callback_query_handler(func=lambda call: call.data == "upload_now")
-def callback_upload_now(call):
-    chat_id = call.message.chat.id
-    data = user_data_store.get(chat_id, {}).get("upload_pending")
+def init_db():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS stored_files (
+                    token TEXT PRIMARY KEY,
+                    channel_id BIGINT NOT NULL,
+                    message_id BIGINT NOT NULL,
+                    sender_id BIGINT NOT NULL,
+                    sender_name TEXT NOT NULL DEFAULT '',
+                    original_chat_id BIGINT NOT NULL,
+                    original_message_id BIGINT NOT NULL,
+                    file_name TEXT NOT NULL DEFAULT '',
+                    file_type TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+    logger.info("Database initialized")
 
-    if data:
-        media_id = data["media_id"]
-        files = data["files"]
-        media_message_id = data.get("media_message_id")
 
-        # Save to database
-        db_storage[media_id] = files
+def save_file(data):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO stored_files (
+                    token, channel_id, message_id,
+                    sender_id, sender_name,
+                    original_chat_id, original_message_id,
+                    file_name, file_type
+                )
+                VALUES (
+                    %(token)s, %(channel_id)s, %(message_id)s,
+                    %(sender_id)s, %(sender_name)s,
+                    %(original_chat_id)s, %(original_message_id)s,
+                    %(file_name)s, %(file_type)s
+                )
+                ON CONFLICT (token) DO NOTHING
+            """, data)
 
-        shareable_link = f"https://telegram.me/{bot.get_me().username}?start={media_id}"
 
-        # Clear pending data
-        user_data_store[chat_id]["upload_pending"] = None
-        
-        # Delete old button message
-        button_msg_id = user_data_store.get(chat_id, {}).get("upload_button_message_id")
-        if button_msg_id:
-            try:
-                bot.delete_message(chat_id, button_msg_id)
-            except:
-                pass
+def get_file(token):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM stored_files
+                WHERE token = %s
+            """, (token,))
+            return cur.fetchone()
 
-        bot.send_message(
-            chat_id=chat_id,
-            text=f"✅ Upload complete!\n\n🔗 Shareable Link:\n{shareable_link}",
-            reply_to_message_id=media_message_id
+
+# ==================================================
+# HELPERS
+# ==================================================
+
+def get_sender_name(user):
+    if not user:
+        return "Unknown"
+
+    first = user.first_name or ""
+    last = user.last_name or ""
+    full_name = (first + " " + last).strip()
+
+    if user.username:
+        return full_name + " (@" + user.username + ")"
+
+    return full_name or str(user.id)
+
+
+def identify_file(message):
+    """
+    Returns file type and original filename where available.
+    Text-only messages are not accepted.
+    """
+
+    if message.document:
+        return "document", message.document.file_name or "document"
+
+    if message.video:
+        return "video", message.video.file_name or "video"
+
+    if message.animation:
+        return "animation", message.animation.file_name or "animation"
+
+    if message.audio:
+        return "audio", message.audio.file_name or "audio"
+
+    if message.voice:
+        return "voice", "voice.ogg"
+
+    if message.video_note:
+        return "video_note", "video_note"
+
+    if message.photo:
+        return "photo", "photo.jpg"
+
+    if message.sticker:
+        return "sticker", "sticker"
+
+    return None, None
+
+
+def get_start_link(token):
+    if not BOT_USERNAME:
+        raise RuntimeError("Bot username is not initialized")
+
+    return "https://t.me/" + BOT_USERNAME + "?start=" + token
+
+
+def build_upload_keyboard(token):
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(
+        telebot.types.InlineKeyboardButton(
+            text="⬆️ Upload Now",
+            callback_data="upload:" + token
         )
-    else:
-        bot.send_message(chat_id, "❌ File not found. Please send the file again.")
+    )
+    return markup
 
 
-# =========================
-# ALL MEDIA & FILE HANDLER
-# =========================
-@bot.message_handler(content_types=['photo', 'video', 'audio', 'voice', 'document', 'animation', 'sticker', 'text'])
-def handle_all_messages(message):
-    chat_id = message.chat.id
-    text = message.text
+# ==================================================
+# FILE RECEIVER
+# ==================================================
 
-    # Finish upload command check
-    if text == "✅":
-        session = user_data_store.get(chat_id, {}).get("upload_pending")
-        if session and session.get("files"):
-            media_id = session["media_id"]
-            files = session["files"]
-            db_storage[media_id] = files
+@bot.message_handler(
+    content_types=[
+        "document",
+        "photo",
+        "video",
+        "audio",
+        "voice",
+        "animation",
+        "sticker",
+        "video_note"
+    ],
+    func=lambda message: message.chat.type == "private"
+)
+def receive_file(message):
+    sender = message.from_user
 
-            shareable_link = f"https://telegram.me/{bot.get_me().username}?start={media_id}"
-            bot.send_message(chat_id, f"✅ Upload complete!\n\n🔗 Share this link:\n{shareable_link}")
-            user_data_store[chat_id]["upload_pending"] = None
-        else:
-            bot.send_message(chat_id, "❌ No media was uploaded.")
+    if not sender:
+        bot.reply_to(
+            message,
+            "Unable to identify the sender of this file."
+        )
         return
 
-    # Check if input is a media file
-    media_types = ['photo', 'video', 'audio', 'voice', 'document', 'animation', 'sticker']
-    is_media = any(getattr(message, mt, None) is not None for mt in media_types)
+    file_type, file_name = identify_file(message)
 
-    if is_media:
-        # 1. सबसे पहले फाइल को आपके प्राइवेट चैनल में फॉरवर्ड करें ताकि .apk नाम/एक्सटेंशन सुरक्षित रहे
-        forwarded_msg = None
+    if not file_type:
+        return
+
+    status = bot.reply_to(
+        message,
+        "⏳ Saving your file to the private channel..."
+    )
+
+    try:
+        # Forward the original message so Telegram can retain
+        # forwarding attribution where Telegram permits it.
+        forwarded = bot.forward_message(
+            chat_id=CHANNEL_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+
+        token = uuid.uuid4().hex
+
+        sender_name = get_sender_name(sender)
+
+        record = {
+            "token": token,
+            "channel_id": CHANNEL_ID,
+            "message_id": forwarded.message_id,
+            "sender_id": sender.id,
+            "sender_name": sender_name,
+            "original_chat_id": message.chat.id,
+            "original_message_id": message.message_id,
+            "file_name": file_name,
+            "file_type": file_type
+        }
+
+        save_file(record)
+
+        share_link = get_start_link(token)
+
+        caption = (
+            "✅ File saved successfully.\n\n"
+            "📁 File: " + file_name + "\n"
+            "🔗 Shareable link:\n" + share_link + "\n\n"
+            "Each file has its own link."
+        )
+
+        bot.edit_message_text(
+            caption,
+            chat_id=status.chat.id,
+            message_id=status.message_id,
+            reply_markup=build_upload_keyboard(token)
+        )
+
+    except Exception:
+        logger.exception("Could not save incoming file")
+
         try:
-            forwarded_msg = bot.forward_message(
-                chat_id=PRIVATE_CHANNEL_ID,
-                from_chat_id=chat_id,
-                message_id=message.message_id
+            bot.edit_message_text(
+                "❌ Unable to save this file. Please try again later.",
+                chat_id=status.chat.id,
+                message_id=status.message_id
             )
-        except Exception as e:
-            print(f"Forward error: {e}")
-
-        if forwarded_msg and forwarded_msg.message_id:
-            media_entry = {
-                "chat_id": PRIVATE_CHANNEL_ID,
-                "message_id": forwarded_msg.message_id
-            }
-
-            if chat_id not in user_data_store:
-                user_data_store[chat_id] = {}
-
-            pending_data = user_data_store[chat_id].get("upload_pending")
-
-            if pending_data and "files" in pending_data:
-                pending_data["files"].append(media_entry)
-                pending_data["media_message_id"] = message.message_id
-                total_files = len(pending_data["files"])
-
-                # Purana button delete karo
-                old_btn = user_data_store[chat_id].get("upload_button_message_id")
-                if old_btn:
-                    try:
-                        bot.delete_message(chat_id, old_btn)
-                    except:
-                        pass
-
-                markup = telebot.types.InlineKeyboardMarkup()
-                markup.add(telebot.types.InlineKeyboardButton("⬆️ Upload Now", callback_data="upload_now"))
-
-                sent = bot.send_message(
-                    chat_id,
-                    f"📁 Total Files Received: {total_files}\n\n👇 Aur file bhejo ya Upload Now dabao.",
-                    reply_to_message_id=message.message_id,
-                    reply_markup=markup
-                )
-                user_data_store[chat_id]["upload_button_message_id"] = sent.message_id
-
-            else:
-                media_id = f"{chat_id}_{message.message_id}"
-                user_data_store[chat_id]["upload_pending"] = {
-                    "media_id": media_id,
-                    "files": [media_entry],
-                    "media_message_id": message.message_id
-                }
-
-                markup = telebot.types.InlineKeyboardMarkup()
-                markup.add(telebot.types.InlineKeyboardButton("⬆️ Upload Now", callback_data="upload_now"))
-
-                sent = bot.send_message(
-                    chat_id,
-                    "📁 File receive!\n\n👇 Aur files bhejo ya Upload Now dabao.",
-                    reply_to_message_id=message.message_id,
-                    reply_markup=markup
-                )
-                user_data_store[chat_id]["upload_button_message_id"] = sent.message_id
-        else:
-            bot.send_message(chat_id, "❌ Failed to save file in private channel. Ensure bot is admin there!")
+        except Exception:
+            pass
 
 
-# =========================
-# MAIN ENTRY POINT
-# =========================
+# ==================================================
+# UPLOAD NOW BUTTON
+# ==================================================
+
+@bot.callback_query_handler(
+    func=lambda call: bool(call.data)
+    and call.data.startswith("upload:")
+)
+def upload_now(call):
+    token = call.data.split(":", 1)[1]
+
+    try:
+        record = get_file(token)
+
+        if not record:
+            bot.answer_callback_query(
+                call.id,
+                "File record not found.",
+                show_alert=True
+            )
+            return
+
+        if call.from_user.id != record["sender_id"]:
+            bot.answer_callback_query(
+                call.id,
+                "This button belongs to another user.",
+                show_alert=True
+            )
+            return
+
+        # The file is already saved in the private channel.
+        # Return its permanent bot start link.
+        link = get_start_link(token)
+
+        bot.answer_callback_query(
+            call.id,
+            "Your shareable link is ready."
+        )
+
+        bot.send_message(
+            call.message.chat.id,
+            "🔗 Your file link:\n" + link,
+            reply_to_message_id=call.message.message_id
+        )
+
+    except Exception:
+        logger.exception("Upload button failed")
+
+        try:
+            bot.answer_callback_query(
+                call.id,
+                "Something went wrong. Please try again.",
+                show_alert=True
+            )
+        except Exception:
+            pass
+
+
+# ==================================================
+# SHARE LINK /start HANDLER
+# ==================================================
+
+@bot.message_handler(
+    commands=["start"],
+    func=lambda message: message.chat.type == "private"
+)
+def start_handler(message):
+    parts = (message.text or "").split(maxsplit=1)
+
+    if len(parts) < 2:
+        bot.reply_to(
+            message,
+            "👋 Welcome to File Store Bot!\n\n"
+            "Send me a file to save it and receive a shareable link."
+        )
+        return
+
+    token = parts[1].strip()
+
+    # Tokens are generated as 32 hexadecimal characters.
+    if len(token) != 32 or any(
+        char not in "0123456789abcdef" for char in token.lower()
+    ):
+        bot.reply_to(message, "❌ Invalid shareable link.")
+        return
+
+    try:
+        record = get_file(token)
+
+        if not record:
+            bot.reply_to(
+                message,
+                "❌ File not found. The link may be invalid."
+            )
+            return
+
+        # Copy the channel message instead of forwarding it again.
+        # This delivers the original stored media without exposing
+        # the private channel to the recipient.
+        copied = bot.copy_message(
+            chat_id=message.chat.id,
+            from_chat_id=record["channel_id"],
+            message_id=record["message_id"]
+        )
+
+        logger.info(
+            "Delivered token=%s to user=%s, message=%s",
+            token,
+            message.from_user.id,
+            copied.message_id
+        )
+
+    except Exception:
+        logger.exception("Share link delivery failed")
+
+        bot.reply_to(
+            message,
+            "❌ Could not deliver this file. "
+            "Please try again later."
+        )
+
+
+# ==================================================
+# OPTIONAL HEALTH CHECK WEB SERVER
+# ==================================================
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Telegram File Store Bot is running", 200
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+
+        return {"status": "ok", "database": "connected"}, 200
+
+    except Exception:
+        logger.exception("Health check failed")
+        return {"status": "error"}, 503
+
+
+# ==================================================
+# STARTUP
+# ==================================================
+
+def run_web_server():
+    app.run(
+        host="0.0.0.0",
+        port=PORT,
+        threaded=True,
+        use_reloader=False
+    )
+
+
+def main():
+    global BOT_USERNAME
+
+    init_db()
+
+    BOT_USERNAME = bot.get_me().username
+
+    logger.info("Starting bot @%s", BOT_USERNAME)
+
+    if WEBHOOK_URL:
+        webhook_url = WEBHOOK_URL + "/" + BOT_TOKEN
+
+        bot.remove_webhook()
+        time.sleep(1)
+
+        bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=["message", "callback_query"]
+        )
+
+        @app.route("/" + BOT_TOKEN, methods=["POST"])
+        def telegram_webhook():
+            if request.headers.get("content-type", "").split(";")[0] != (
+                "application/json"
+            ):
+                abort(403)
+
+            json_update = request.get_data().decode("utf-8")
+
+            update = telebot.types.Update.de_json(json_update)
+            bot.process_new_updates([update])
+
+            return "OK", 200
+
+        logger.info("Webhook enabled")
+        run_web_server()
+
+    else:
+        bot.remove_webhook()
+        logger.info("Using long polling")
+
+        # Render Background Worker is recommended for polling.
+        bot.infinity_polling(
+            skip_pending=False,
+            allowed_updates=["message", "callback_query"],
+            timeout=30,
+            long_polling_timeout=30
+        )
+
+
 if __name__ == "__main__":
-    # Flask सर्वर को बैकग्राउंड में चलाना ताकि Render इसे लाइव रखे
-    t = threading.Thread(target=run_flask)
-    t.start()
-
-    print("Bot is starting polling...")
-    bot.infinity_polling()
+    main()
     
