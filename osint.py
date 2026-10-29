@@ -1,24 +1,28 @@
+
 import os
 import json
 import sqlite3
 import asyncio
 import logging
 import urllib.request
-from pathlib import Path
 from urllib.error import URLError, HTTPError
+from pathlib import Path
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ContextTypes, filters
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
 )
 
-# Render Environment Variables:
-# BOT_TOKEN = your Telegram bot token
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = 5989928539
 DB_CHANNEL_ID = -1003954392340
 SECRET_CHANNEL_ID = -1004490787792
 DB_PATH = os.environ.get("DB_PATH", "bot_data.sqlite3")
+KEEPALIVE_URL = os.environ.get(
+    "KEEPALIVE_URL",
+    "https://stylish-text-bot-1ycc.onrender.com"
+).strip()
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -27,16 +31,19 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ---------------- DATABASE ----------------
+# DATABASE
 def db():
     conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
 def init_db():
     with db() as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)"
+        )
         conn.execute("""
             CREATE TABLE IF NOT EXISTS shares (
                 media_id TEXT PRIMARY KEY,
@@ -55,18 +62,25 @@ def init_db():
 
 def register_user(user_id):
     with db() as conn:
-        conn.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (int(user_id),))
+        conn.execute(
+            "INSERT OR IGNORE INTO users(user_id) VALUES(?)",
+            (int(user_id),)
+        )
 
 
 def get_users():
     with db() as conn:
-        return [r[0] for r in conn.execute("SELECT user_id FROM users").fetchall()]
+        return [
+            r[0] for r in
+            conn.execute("SELECT user_id FROM users").fetchall()
+        ]
 
 
 def save_share(media_id, channel_id, files):
     with db() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO shares(media_id, channel_id, files_json) VALUES(?,?,?)",
+            """INSERT OR REPLACE INTO shares
+            (media_id, channel_id, files_json) VALUES(?,?,?)""",
             (str(media_id), int(channel_id), json.dumps(files))
         )
 
@@ -74,7 +88,8 @@ def save_share(media_id, channel_id, files):
 def get_share(media_id):
     with db() as conn:
         row = conn.execute(
-            "SELECT channel_id, files_json FROM shares WHERE media_id=?", (str(media_id),)
+            "SELECT channel_id, files_json FROM shares WHERE media_id=?",
+            (str(media_id),)
         ).fetchone()
     if not row:
         return None
@@ -84,7 +99,8 @@ def get_share(media_id):
 def register_file_user(media_id, user_id):
     with db() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO file_users(media_id, user_id) VALUES(?,?)",
+            """INSERT OR IGNORE INTO file_users(media_id, user_id)
+            VALUES(?,?)""",
             (str(media_id), int(user_id))
         )
 
@@ -92,13 +108,13 @@ def register_file_user(media_id, user_id):
 def count_file_users(media_id):
     with db() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) FROM file_users WHERE media_id=?", (str(media_id),)
+            "SELECT COUNT(*) FROM file_users WHERE media_id=?",
+            (str(media_id),)
         ).fetchone()
     return row[0] if row else 0
 
 
 def format_bytes(size):
-    """Return a human-readable file size."""
     value = float(size)
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if value < 1024 or unit == "TB":
@@ -107,30 +123,43 @@ def format_bytes(size):
 
 
 def database_storage_report():
-    """Report SQLite database, WAL and shared-memory file sizes plus row counts."""
     db_file = Path(DB_PATH)
-    files = [db_file, Path(str(db_file) + "-wal"), Path(str(db_file) + "-shm")]
-    sizes = {str(path): path.stat().st_size if path.exists() else 0 for path in files}
+    paths = [
+        db_file,
+        Path(str(db_file) + "-wal"),
+        Path(str(db_file) + "-shm")
+    ]
+    sizes = {
+        str(p): p.stat().st_size if p.exists() else 0
+        for p in paths
+    }
+
     with db() as conn:
         users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         shares = conn.execute("SELECT COUNT(*) FROM shares").fetchone()[0]
-        file_users = conn.execute("SELECT COUNT(*) FROM file_users").fetchone()[0]
-    total = sum(sizes.values())
+        records = conn.execute(
+            "SELECT COUNT(*) FROM file_users"
+        ).fetchone()[0]
+
     return (
-        "💾 <b>DATABASE STORAGE</b>\n\n"
+        "💾 <b>DATABASE STORAGE STATUS</b>\n\n"
         f"📂 Database: <code>{DB_PATH}</code>\n"
         f"🗃 Main DB: {format_bytes(sizes[str(db_file)])}\n"
-        f"📝 WAL file: {format_bytes(sizes[str(db_file) + '-wal'])}\n"
-        f"🧩 SHM file: {format_bytes(sizes[str(db_file) + '-shm'])}\n"
-        f"📦 Total SQLite files: <b>{format_bytes(total)}</b>\n\n"
+        f"📝 WAL: {format_bytes(sizes[str(db_file) + '-wal'])}\n"
+        f"🧩 SHM: {format_bytes(sizes[str(db_file) + '-shm'])}\n"
+        f"📦 Total SQLite: <b>{format_bytes(sum(sizes.values()))}</b>\n\n"
         f"👥 Registered users: <b>{users:,}</b>\n"
-        f"🔗 Saved share links: <b>{shares:,}</b>\n"
-        f"📥 File-download records: <b>{file_users:,}</b>\n\n"
-        "ℹ️ This shows the SQLite files used by this bot, not the total Render disk usage."
+        f"🔗 Saved links: <b>{shares:,}</b>\n"
+        f"📥 Download records: <b>{records:,}</b>\n\n"
+        "ℹ️ SQLite storage only, not total Render disk usage."
     )
 
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def is_admin(user_id):
+    return bool(user_id and int(user_id) == ADMIN_ID)
+
+
+async def status_command(update, context):
     user = update.effective_user
     if not user or not is_admin(user.id):
         return
@@ -139,34 +168,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def _ping_url_sync():
-    """Ping the configured companion URL with a short timeout."""
-    url = os.environ.get(
-        "KEEPALIVE_URL", "https://stylish-text-bot-1ycc.onrender.com"
-    ).strip()
-    if not url:
-        return "KEEPALIVE_URL is empty"
-    request = urllib.request.Request(
-        url, headers={"User-Agent": "Render-KeepAlive/1.0"}, method="GET"
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return f"Keep-alive ping: HTTP {response.status} from {url}"
-    except (URLError, HTTPError, TimeoutError, OSError) as exc:
-        return f"Keep-alive ping failed for {url}: {exc}"
-
-
-async def keepalive_ping(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        result = await asyncio.to_thread(_ping_url_sync)
-        log.info(result)
-    except Exception:
-        log.exception("Keep-alive ping error")
-
-
-# ---------------- HELPERS ----------------
-def is_admin(user_id):
-    return bool(user_id and int(user_id) == ADMIN_ID)
+async def storage_command(update, context):
+    await status_command(update, context)
 
 
 def get_message_type(message):
@@ -191,25 +194,45 @@ def get_message_type(message):
     return None
 
 
-async def delete_one(context: ContextTypes.DEFAULT_TYPE):
+async def delete_one(context):
     data = context.job.data
     try:
         await context.bot.delete_message(
-            chat_id=data["chat_id"], message_id=data["message_id"]
+            chat_id=data["chat_id"],
+            message_id=data["message_id"]
         )
     except Exception:
         pass
 
 
-async def delete_many(context: ContextTypes.DEFAULT_TYPE):
+async def delete_many(context):
     data = context.job.data
-    for message_id in data.get("message_ids", []):
+    for mid in data.get("message_ids", []):
         try:
             await context.bot.delete_message(
-                chat_id=data["chat_id"], message_id=message_id
+                chat_id=data["chat_id"], message_id=mid
             )
         except Exception:
             pass
+
+
+async def keepalive_ping(context):
+    if not KEEPALIVE_URL:
+        return
+
+    def ping():
+        req = urllib.request.Request(
+            KEEPALIVE_URL,
+            headers={"User-Agent": "Render-KeepAlive/1.0"}
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return response.status
+
+    try:
+        status = await asyncio.to_thread(ping)
+        log.info("Keep-alive HTTP %s", status)
+    except (URLError, HTTPError, TimeoutError, OSError):
+        log.exception("Keep-alive ping failed")
 
 
 async def backup_to_secret(message, context):
@@ -222,237 +245,19 @@ async def backup_to_secret(message, context):
         user = message.from_user
         if user:
             name = (user.first_name or "User")
-            name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            caption = (
-                f'👤 Name: <a href="tg://user?id={user.id}">{name}</a>\n\n'
-                f'🆔 ID: <code>{user.id}</code>'
-            )
+            name = (name.replace("&", "&amp;")
+                    .replace("<", "&lt;").replace(">", "&gt;"))
             await context.bot.send_message(
-                chat_id=SECRET_CHANNEL_ID, text=caption, parse_mode="HTML"
+                chat_id=SECRET_CHANNEL_ID,
+                text=(
+                    f'👤 Name: <a href="tg://user?id={user.id}">'
+                    f'{name}</a>\n\n🆔 ID: <code>{user.id}</code>'
+                ),
+                parse_mode="HTML"
             )
     except Exception:
         log.exception("Secret-channel backup failed")
-
-
-# ---------------- /START + SHARE LINKS ----------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    user = update.effective_user
-    if not message or not user:
-        return
-
-    register_user(user.id)
-
-    if not context.args or context.args[0] == "None":
-        await message.reply_text(
-            "📁 Welcome to File Sharing Bot! ⚡\n\n"
-            "Send me any file to get a shareable link."
-        )
-        return
-
-    media_id = str(context.args[0])
-    data = get_share(media_id)
-
-    if not data:
-        msg = await message.reply_text("❌ File not found.")
-        context.job_queue.run_once(
-            delete_one, 30,
-            data={"chat_id": message.chat_id, "message_id": msg.message_id}
-        )
-        return
-
-    register_file_user(media_id, user.id)
-    sent_ids = []
-
-    for item in data["files"]:
-        try:
-            copied = await context.bot.copy_message(
-                chat_id=message.chat_id,
-                from_chat_id=data["channel_id"],
-                message_id=item["db_message_id"]
-            )
-            sent_ids.append(copied.message_id)
-        except Exception:
-            log.exception("Shared item could not be copied")
-
-    if sent_ids:
-        note = await context.bot.send_message(
-            chat_id=message.chat_id,
-            text=(
-                "⚠️ These files will be deleted after 30 minutes. "
-                "Save or forward them now!"
-            ),
-            reply_to_message_id=sent_ids[-1]
-        )
-        sent_ids.append(note.message_id)
-
-        context.job_queue.run_once(
-            delete_many, 1800,
-            data={"chat_id": message.chat_id, "message_ids": sent_ids}
-        )
-    else:
-        msg = await message.reply_text("❌ Files Not Found!")
-        context.job_queue.run_once(
-            delete_one, 15,
-            data={"chat_id": message.chat_id, "message_id": msg.message_id}
-        )
-
-
-# ---------------- /INFO ----------------
-async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    if not message:
-        return
-
-    if not context.args:
-        text = (
-            "⚠️ <b>Invalid Usage!</b>\n\n"
-            "📌 <b>Usage:</b> <code>/info MEDIA_ID</code>\n"
-            "💡 <b>Example:</b> <code>/info 5989928539_382</code>\n\n"
-            "ℹ️ File ID is the part after <code>?start=</code> in the share link."
-        )
-        sent = await message.reply_text(text, parse_mode="HTML")
-        context.job_queue.run_once(
-            delete_one, 200,
-            data={"chat_id": message.chat_id, "message_id": sent.message_id}
-        )
-        return
-
-    media_id = str(context.args[0]).strip()
-    data = get_share(media_id)
-    if not data:
-        text = (
-            "❌ <b>File Not Found!</b>\n\n"
-            f"🆔 <b>File ID:</b> <code>{media_id}</code>\n"
-            "⚠️ Please check the ID and try again."
-        )
-    else:
-        text = (
-            "📊 <b>FILE STATUS</b>\n"
-            f"🆔 <b>File ID:</b> <code>{media_id}</code>\n"
-            f"📁 <b>Files saved:</b> {len(data['files'])}\n"
-            f"👥 <b>Total Download:</b> {count_file_users(media_id)}"
-        )
-
-    sent = await message.reply_text(text, parse_mode="HTML")
-    context.job_queue.run_once(
-        delete_one, 200,
-        data={"chat_id": message.chat_id, "message_id": sent.message_id}
-    )
-
-
-# ---------------- RECEIVE FILES / TEXT ----------------
-async def receive_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    user = update.effective_user
-    if not message or not user:
-        return
-
-    register_user(user.id)
-    kind = get_message_type(message)
-    if not kind:
-        return
-
-    if message.text and message.text.startswith("/"):
-        return
-    await backup_to_secret(message, context)
-
-    sessions = context.application.bot_data.setdefault("sessions", {})
-    key = (message.chat_id, user.id)
-    pending = sessions.get(key)
-
-    if not pending:
-        pending = {
-            "media_id": f"{message.chat_id}_{message.message_id}",
-            "chat_id": message.chat_id,
-            "files": [],
-            "media_message_id": message.message_id,
-            "timer_job": None,
-            "button_message_id": None,
-        }
-        sessions[key] = pending
-
-    pending["files"].append({
-        "type": kind,
-        "source_message_id": message.message_id
-    })
-    pending["media_message_id"] = message.message_id
-
-    old_job = pending.get("timer_job")
-    if old_job:
-        old_job.schedule_removal()
-
-    old_button_id = pending.get("button_message_id")
-    if old_button_id:
-        try:
-            await context.bot.delete_message(
-                chat_id=message.chat_id, message_id=old_button_id
-            )
-        except Exception:
-            pass
-
-    sent = await message.reply_text(
-        f"📁 Items received: {len(pending['files'])}. Send more or tap Upload Now.",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("📤 𝗨𝗽𝗹𝗼𝗮𝗱 𝗡𝗼𝘄", callback_data="upload_now")
-        ]])
-    )
-    pending["button_message_id"] = sent.message_id
-    pending["timer_job"] = context.job_queue.run_once(
-        expire_upload, 120,
-        data={"key": list(key), "media_id": pending["media_id"]}
-    )
-
-
-async def expire_upload(context: ContextTypes.DEFAULT_TYPE):
-    data = context.job.data
-    key = tuple(data["key"])
-    sessions = context.application.bot_data.setdefault("sessions", {})
-    pending = sessions.get(key)
-    if not pending or pending.get("media_id") != data["media_id"]:
-        return
-
-    button_id = pending.get("button_message_id")
-    if button_id:
-        try:
-            await context.bot.delete_message(
-                chat_id=pending["chat_id"], message_id=button_id
-            )
-        except Exception:
-            pass
-    sessions.pop(key, None)
-    try:
-        expire_msg = await context.bot.send_message(
-            chat_id=pending["chat_id"],
-            text="⌛ Time expired! Upload session cancelled."
-        )
-        context.job_queue.run_once(
-            delete_one, 20,
-            data={"chat_id": pending["chat_id"], "message_id": expire_msg.message_id}
-        )
-    except Exception:
-        pass
-
-
-async def upload_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = query.from_user
-    key = (query.message.chat_id, user.id)
-    sessions = context.application.bot_data.setdefault("sessions", {})
-    pending = sessions.get(key)
-
-    if not pending or not pending["files"]:
-        await query.message.reply_text("❌ No pending files found. Please send a file first.")
-        return
-
-    if pending.get("timer_job"):
-        pending["timer_job"].schedule_removal()
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-
+        
     saved_files = []
     failed_count = 0
     last_error = ""
@@ -471,89 +276,116 @@ async def upload_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as exc:
             failed_count += 1
             last_error = str(exc)
-            log.exception("Failed to save item in database channel")
+            log.exception("Failed to save item")
 
     if saved_files:
         media_id = pending["media_id"]
         save_share(media_id, DB_CHANNEL_ID, saved_files)
+
         me = await context.bot.get_me()
         share_link = f"https://t.me/{me.username}?start={media_id}"
         sessions.pop(key, None)
 
-        result = f"✅ Upload completed!\n\n📁 Files saved: {len(saved_files)}"
+        result = (
+            "✅ Upload completed!\n\n"
+            f"📁 Files saved: {len(saved_files)}"
+        )
         if failed_count:
             result += f"\n⚠️ Items failed: {failed_count}"
         result += f"\n\n🔗 Your Shareable Link:\n{share_link}"
 
         await query.message.reply_text(
-            result, reply_to_message_id=pending.get("media_message_id")
+            result,
+            reply_to_message_id=pending.get("media_message_id")
         )
     else:
         error_text = (
-            "❌ Failed to save items to the database channel.\n\n"
-            "Please check that the bot is an admin in the database channel "
-            "and has permission to post messages."
+            "❌ Failed to save files to the database channel.\n"
+            "Check bot admin permissions and posting access."
         )
         if last_error:
-            error_text += "\n\nError: " + last_error[:500]
+            error_text += "\n\nError: " + last_error[:400]
+
         await query.message.reply_text(error_text)
         sessions.pop(key, None)
 
 
-# ---------------- BROADCAST (NEW SYSTEM) ----------------
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
+# NEW BROADCAST
+async def broadcast_command(update, context):
     user = update.effective_user
-    if not user or not is_admin(user.id):
+    message = update.effective_message
+
+    if not user or not is_admin(user.id) or not message:
         return
 
-    # If not replying to a message and no content provided
-    if not message.reply_to_message:
+    target = message.reply_to_message
+
+    if not target:
         await message.reply_text(
-            "<b>🎙️ Reply to any message or send content with /broadcast to broadcast in HTML\n\nTo Cancel: /cancel</b>",
-            parse_mode="HTML"
+            "🎙️ Broadcast instructions:\n\n"
+            "1. Send your message, photo, video or file.\n"
+            "2. Reply to it with /broadcast.\n\n"
+            "Cancel command: /cancel"
         )
         return
 
-    target_message = message.reply_to_message
     users = get_users()
-
-    status_msg = await message.reply_text("<b>🔁 Broadcast Processing...</b>", parse_mode="HTML")
+    status_msg = await message.reply_text(
+        "<b>🔁 Broadcast Processing...</b>",
+        parse_mode="HTML"
+    )
 
     success = 0
     fail = 0
+    blocked = 0
 
     for uid in users:
         try:
             await context.bot.copy_message(
                 chat_id=uid,
-                from_chat_id=target_message.chat_id,
-                message_id=target_message.message_id
+                from_chat_id=target.chat_id,
+                message_id=target.message_id
             )
             success += 1
-            await asyncio.sleep(0.04)
-        except Exception:
+        except Exception as exc:
             fail += 1
-            await asyncio.sleep(0.04)
+            error = str(exc).lower()
+            if any(term in error for term in (
+                "bot was blocked",
+                "user is deactivated",
+                "chat not found",
+                "bot can't initiate conversation"
+            )):
+                blocked += 1
 
-    total = len(users)
-    txt = f"""<b>
-🎙️ Broadcast Done
-    
-👥 Total: {total}
-✅ Success: {success}
-❌ Failed: {fail}
-</b>"""
-    try:
-        await status_msg.edit_text(txt, parse_mode="HTML")
-    except Exception:
-        await message.reply_text(txt, parse_mode="HTML")
+        await asyncio.sleep(0.04)
+
+    await status_msg.edit_text(
+        "<b>🎙️ BROADCAST DONE\n\n"
+        f"👥 Total: {len(users)}\n"
+        f"✅ Success: {success}\n"
+        f"❌ Failed: {fail}\n"
+        f"🚫 Blocked (detected): {blocked}</b>",
+        parse_mode="HTML"
+    )
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+async def cancel_broadcast_command(update, context):
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        return
+
+    await update.effective_message.reply_text(
+        "❌ No pending broadcast. Nothing is running."
+    )
+
+
+# ERROR HANDLER
+async def error_handler(update, context):
     log.error("Unhandled bot error: %s", context.error)
 
 
+# MAIN
 def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
@@ -561,20 +393,38 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("storage", storage_command))
+
     app.add_handler(CommandHandler("broadcast", broadcast_command))
-    app.add_handler(CallbackQueryHandler(upload_now, pattern=r"^upload_now$"))
+    app.add_handler(CommandHandler("cancel", cancel_broadcast_command))
+    app.add_handler(
+        CommandHandler("cancelbroadcast", cancel_broadcast_command)
+    )
 
     app.add_handler(
-        MessageHandler(filters.ALL & ~filters.COMMAND, receive_message),
-        group=0
+        CallbackQueryHandler(upload_now, pattern=r"^upload_now$")
     )
+
+    app.add_handler(
+        MessageHandler(
+            filters.ALL & ~filters.COMMAND,
+            receive_message
+        )
+    )
+
     app.add_error_handler(error_handler)
 
-    # Ping the companion Render URL every 2 minutes
-    app.job_queue.run_repeating(keepalive_ping, interval=120, first=1, name="keepalive_ping")
+    app.job_queue.run_repeating(
+        keepalive_ping,
+        interval=120,
+        first=1,
+        name="keepalive_ping"
+    )
+
+    log.info("Bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
     main()
-    
+        
