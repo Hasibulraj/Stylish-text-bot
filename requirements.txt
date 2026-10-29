@@ -2,3 +2,4 @@ pyTelegramBotAPI==4.29.1
 psycopg2-binary==2.9.10
 Flask==3.1.1
 gunicorn==23.0.0
+python-telegram-bot[job-queue]>=21.0,<23.0
